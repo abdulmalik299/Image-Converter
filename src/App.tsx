@@ -10,6 +10,7 @@ import { AnyRasterTab } from "./tabs/AnyRasterTab";
 import { RasterToSvgTab } from "./tabs/RasterToSvgTab";
 import { SvgToRasterTab } from "./tabs/SvgToRasterTab";
 import { BatchZipTab } from "./tabs/BatchZipTab";
+import { ConversionFinderTab } from "./tabs/ConversionFinderTab";
 import { HelpTab } from "./tabs/HelpTab";
 
 export default function App() {
@@ -74,6 +75,8 @@ export default function App() {
         return <SvgToRasterTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
       case "batch":
         return <BatchZipTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
+      case "finder":
+        return <ConversionFinderTab />;
       case "help":
         return <HelpTab />;
       default:

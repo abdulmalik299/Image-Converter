@@ -6,6 +6,7 @@ export type TabKey =
   | "raster-svg"
   | "svg-raster"
   | "batch"
+  | "finder"
   | "help";
 
 export const TABS: { key: TabKey; label: string; desc: string }[] = [
@@ -16,5 +17,6 @@ export const TABS: { key: TabKey; label: string; desc: string }[] = [
   { key: "raster-svg", label: "PNG/JPG/WebP → SVG", desc: "Advanced vectorization (logos & illustrations)" },
   { key: "svg-raster", label: "SVG → PNG/JPG/WebP", desc: "Crisp export at exact size" },
   { key: "batch", label: "Batch ZIP", desc: "Convert many files and download a ZIP" },
+  { key: "finder", label: "Conversion Finder", desc: "Pick from/to and we guide you" },
   { key: "help", label: "Help & Tips", desc: "FAQ, best settings, why results vary" }
 ];

@@ -6,6 +6,7 @@ import { Toast, ToastState } from "../components/Toast";
 import { svgToRaster } from "../lib/svgRaster";
 import { downloadBlob, downloadZip } from "../lib/download";
 import type { CommonRasterSettings } from "../lib/settings";
+import { SOCIAL_SIZE_PRESETS } from "../lib/presets";
 
 function uid() { return `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 const ACCEPT = ["image/svg+xml"];
@@ -105,6 +106,25 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
                   <Input value={settings.jpgBackground} onChange={(e)=>setSettings(p=>({ ...p, jpgBackground:e.target.value }))} />
                 </Field>
               ) : null}
+
+<div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
+  <div className="text-sm font-semibold text-slate-100">Quick size presets</div>
+  <div className="mt-2 grid grid-cols-1 gap-2">
+    {SOCIAL_SIZE_PRESETS.map((p) => (
+      <button
+        key={p.id}
+        className="rounded-xl bg-white/5 px-3 py-2 text-left ring-1 ring-white/10 hover:bg-white/10"
+        onClick={() => setSettings((s) => ({ ...s, maxWidth: p.w, maxHeight: p.h }))}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-sm text-slate-100">{p.label}</div>
+          <div className="text-xs text-slate-400">{p.w}×{p.h}</div>
+        </div>
+        <div className="text-xs text-slate-400 mt-1">{p.note}</div>
+      </button>
+    ))}
+  </div>
+</div>
 
               <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-4 text-xs text-slate-300 leading-relaxed">
                 <div className="font-semibold text-slate-100 mb-1">Popular sizes</div>
