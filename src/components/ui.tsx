@@ -1,18 +1,6 @@
-import { PropsWithChildren, useEffect } from "react";
+import { PropsWithChildren } from "react";
 
 export function AppShell({ children }: PropsWithChildren) {
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      const x = `${Math.round((e.clientX / window.innerWidth) * 100)}%`;
-      const y = `${Math.round((e.clientY / window.innerHeight) * 100)}%`;
-      document.documentElement.style.setProperty("--mx", x);
-      document.documentElement.style.setProperty("--my", y);
-    };
-
-    window.addEventListener("mousemove", onMove, { passive: true });
-    return () => window.removeEventListener("mousemove", onMove);
-  }, []);
-
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-6xl px-4 py-8 md:py-10">

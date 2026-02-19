@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { AppShell } from "./components/ui";
+import { FlowBackground } from "./components/FlowBackground";
 import { TabBar } from "./components/TabBar";
 import type { TabKey } from "./tabs/tabs";
 import { useLocal } from "./lib/useLocal";
@@ -85,9 +86,12 @@ export default function App() {
   }, [tab, raster, setRaster]);
 
   return (
-    <AppShell>
-      <TabBar value={tab} onChange={setTab} />
-      <div className="mt-5">{page}</div>
-    </AppShell>
+    <>
+      <FlowBackground />
+      <AppShell>
+        <TabBar value={tab} onChange={setTab} />
+        <div className="mt-5">{page}</div>
+      </AppShell>
+    </>
   );
 }
