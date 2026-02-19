@@ -147,7 +147,7 @@ export function RasterPairTab(props: {
 
               {(out === "jpg" || out === "webp") ? (
                 <Field label="Quality" hint={`${settings.quality}%`}>
-                  <Slider min={35} max={100} value={settings.quality} onChange={(e) => setSettings((p) => ({ ...p, quality: Number(e.target.value) }))} />
+                  <Slider min={70} max={100} value={settings.quality} onChange={(e) => setSettings((p) => ({ ...p, quality: Number(e.target.value) }))} />
                   <div className="text-xs text-slate-400">Try 90–95 for photos, 85–92 for web.</div>
                 </Field>
               ) : (
