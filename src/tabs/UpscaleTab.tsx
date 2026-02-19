@@ -32,7 +32,7 @@ export function UpscaleTab({ settings, setSettings }: { settings: CommonRasterSe
       <Toast state={toast} onClose={()=>setToast(t=>({ ...t, open:false }))} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-5">
-          <Card title="AI-style Upscaling (2x–5x)" subtitle="Increase dimensions and preserve detail with high-quality defaults.">
+          <Card title="AI-style Upscaling (2x–5x)" subtitle="Increase dimensions, recover details, and improve tone with advanced enhancement controls.">
             <Dropzone
               accept={ACCEPT}
               multiple
@@ -77,7 +77,14 @@ export function UpscaleTab({ settings, setSettings }: { settings: CommonRasterSe
                       smoothingQuality: settings.smoothingQuality,
                       sharpenAmount: settings.sharpenAmount,
                       pngCompression: settings.pngCompression,
-                      chromaSubsampling: settings.chromaSubsampling
+                      chromaSubsampling: settings.chromaSubsampling,
+                      enhance: settings.aiEnhance ? {
+                        autoColor: settings.autoColor,
+                        contrast: settings.aiContrast,
+                        saturation: settings.aiSaturation,
+                        exposure: settings.aiExposure,
+                        denoise: settings.aiDenoise
+                      } : undefined
                     });
                     bmp.close?.();
                     const base=it.file.name.replace(/\.[^.]+$/,'') || 'image';
@@ -96,7 +103,7 @@ export function UpscaleTab({ settings, setSettings }: { settings: CommonRasterSe
         </div>
 
         <div className="space-y-5">
-          <Card title="Upscale settings" subtitle="Per-format presets + social export presets.">
+          <Card title="Upscale settings" subtitle="Per-format presets + AI enhancement controls.">
             <div className="space-y-4">
               <Field label="Detected format" hint="from first file">
                 <Input value={detected ? detected.toUpperCase() : "—"} readOnly />
@@ -145,6 +152,35 @@ export function UpscaleTab({ settings, setSettings }: { settings: CommonRasterSe
                   <option value="high">High smoothing</option>
                 </Select>
               </Field>
+
+              <div className="rounded-2xl bg-violet-50 ring-1 ring-violet-200 p-4 space-y-3">
+                <div className="text-sm font-semibold text-violet-900">AI enhancement</div>
+                <p className="text-xs text-violet-700">Improves color and detail perception. Results depend on the source quality and cannot guarantee perfect restoration.</p>
+                <div className="flex gap-2">
+                  <Button variant={settings.aiEnhance ? "primary" : "ghost"} onClick={() => setSettings((s) => ({ ...s, aiEnhance: true }))}>Enabled</Button>
+                  <Button variant={!settings.aiEnhance ? "primary" : "ghost"} onClick={() => setSettings((s) => ({ ...s, aiEnhance: false }))}>Disabled</Button>
+                </div>
+                {settings.aiEnhance ? (
+                  <>
+                    <div className="flex gap-2">
+                      <Button variant={settings.autoColor ? "primary" : "ghost"} onClick={() => setSettings((s) => ({ ...s, autoColor: true }))}>Auto color balance</Button>
+                      <Button variant={!settings.autoColor ? "primary" : "ghost"} onClick={() => setSettings((s) => ({ ...s, autoColor: false }))}>Manual color</Button>
+                    </div>
+                    <Field label="AI contrast" hint={`${settings.aiContrast}%`}>
+                      <Slider min={0} max={100} value={settings.aiContrast} onChange={(e)=>setSettings(p=>({ ...p, aiContrast:Number(e.target.value) }))} />
+                    </Field>
+                    <Field label="AI saturation" hint={`${settings.aiSaturation}%`}>
+                      <Slider min={0} max={100} value={settings.aiSaturation} onChange={(e)=>setSettings(p=>({ ...p, aiSaturation:Number(e.target.value) }))} />
+                    </Field>
+                    <Field label="AI exposure" hint={`${settings.aiExposure}%`}>
+                      <Slider min={-100} max={100} value={settings.aiExposure} onChange={(e)=>setSettings(p=>({ ...p, aiExposure:Number(e.target.value) }))} />
+                    </Field>
+                    <Field label="AI denoise" hint={`${settings.aiDenoise}%`}>
+                      <Slider min={0} max={100} value={settings.aiDenoise} onChange={(e)=>setSettings(p=>({ ...p, aiDenoise:Number(e.target.value) }))} />
+                    </Field>
+                  </>
+                ) : null}
+              </div>
 
               <div className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
                 <div className="text-sm font-semibold text-slate-900">Format quality presets</div>
