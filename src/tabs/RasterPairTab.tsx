@@ -60,7 +60,7 @@ export function RasterPairTab(props: {
                   return p.filter((x) => x.id !== rid);
                 })
               }
-              extraRight={(rid) => (busyId === rid ? <span className="text-xs text-sky-200">Working…</span> : null)}
+              extraRight={(rid) => (busyId === rid ? <span className="text-xs text-sky-600">Working…</span> : null)}
             />
 
             {items.length ? (
@@ -76,7 +76,7 @@ export function RasterPairTab(props: {
                   Clear
                 </Button>
                 <div className="flex-1" />
-                <div className="text-xs text-slate-300">{items.length} file(s) ready</div>
+                <div className="text-xs text-slate-600">{items.length} file(s) ready</div>
               </div>
             ) : null}
 
@@ -97,7 +97,13 @@ export function RasterPairTab(props: {
                         maxWidth: settings.maxWidth,
                         maxHeight: settings.maxHeight,
                         jpgBackground: settings.jpgBackground,
-                        stripMetadataHint: settings.stripMetadataHint
+                        stripMetadataHint: settings.stripMetadataHint,
+                        resizeMode: settings.resizeMode,
+                        smoothing: settings.smoothing,
+                        smoothingQuality: settings.smoothingQuality,
+                        sharpenAmount: settings.sharpenAmount,
+                        pngCompression: settings.pngCompression,
+                        chromaSubsampling: settings.chromaSubsampling
                       });
                       const name = patternName(settings.fileNamePattern, base, out);
                       downloadBlob(res.blob, name);
@@ -114,13 +120,13 @@ export function RasterPairTab(props: {
               </Button>
 
               <span className="text-xs text-slate-400">
-                Want one ZIP file? Use the <span className="text-slate-200">Batch ZIP</span> tab.
+                Want one ZIP file? Use the <span className="text-slate-700">Batch ZIP</span> tab.
               </span>
             </div>
           </Card>
 
           <Card title="Recommended uses" subtitle="Short reminders so users don't pick the wrong format.">
-            <ul className="list-disc pl-5 space-y-2 text-sm text-slate-300">
+            <ul className="list-disc pl-5 space-y-2 text-sm text-slate-600">
               {recommended.map((r) => <li key={r}>{r}</li>)}
             </ul>
           </Card>
@@ -145,19 +151,19 @@ export function RasterPairTab(props: {
                   <div className="text-xs text-slate-400">Try 90–95 for photos, 85–92 for web.</div>
                 </Field>
               ) : (
-                <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-3 text-xs text-slate-300">
+                <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-600">
                   PNG is lossless (no quality slider needed).
                 </div>
               )}
 
-              <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-3">
+              <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold">Resize</div>
                     <div className="text-xs text-slate-400 mt-1">Off = keep original size.</div>
                   </div>
                   <button
-                    className="rounded-xl bg-white/10 px-3 py-1.5 text-xs ring-1 ring-white/10 hover:bg-white/15"
+                    className="rounded-xl bg-white px-3 py-1.5 text-xs ring-1 ring-slate-200 hover:bg-slate-100"
                     onClick={() => setSettings((p) => ({ ...p, keepSize: !p.keepSize }))}
                   >
                     {settings.keepSize ? "Keep size" : "Resize"}
@@ -172,6 +178,12 @@ export function RasterPairTab(props: {
                     <Field label="Max height">
                       <Input type="number" min={64} max={12000} value={settings.maxHeight} onChange={(e) => setSettings((p) => ({ ...p, maxHeight: Number(e.target.value) }))} />
                     </Field>
+                    <Field label="Resize mode">
+                      <Select value={settings.resizeMode} onChange={(e)=>setSettings((p)=>({ ...p, resizeMode: e.target.value as "contain" | "cover" }))}>
+                        <option value="contain">Contain (fit inside)</option>
+                        <option value="cover">Cover (fill area, can crop)</option>
+                      </Select>
+                    </Field>
                     <div className="col-span-2 text-xs text-slate-400">Aspect ratio is preserved automatically.</div>
                   </div>
                 ) : null}
@@ -183,14 +195,41 @@ export function RasterPairTab(props: {
                 </Field>
               ) : null}
 
-              <Field label="File naming pattern" hint="Use {name} + {ext}">
+              
+
+              <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3 space-y-3">
+                <div className="text-sm font-semibold text-slate-800">Advanced quality</div>
+                <Field label="Resampling">
+                  <Select value={settings.smoothing ? settings.smoothingQuality : "off"} onChange={(e)=>setSettings((p)=>({ ...p, smoothing: e.target.value !== "off", smoothingQuality: (e.target.value === "off" ? p.smoothingQuality : e.target.value) as "low" | "medium" | "high" }))}>
+                    <option value="off">Nearest / pixelated</option>
+                    <option value="low">Low smoothing</option>
+                    <option value="medium">Medium smoothing</option>
+                    <option value="high">High smoothing</option>
+                  </Select>
+                </Field>
+
+                <Field label="Sharpen after resize" hint={`${settings.sharpenAmount}%`}>
+                  <Slider min={0} max={100} value={settings.sharpenAmount} onChange={(e)=>setSettings((p)=>({ ...p, sharpenAmount: Number(e.target.value) }))} />
+                </Field>
+
+                {(settings.out === "jpg" || settings.out === "webp") ? (
+                  <Field label="Chroma quality">
+                    <Select value={settings.chromaSubsampling} onChange={(e)=>setSettings((p)=>({ ...p, chromaSubsampling: e.target.value as "420" | "444" }))}>
+                      <option value="444">4:4:4 (best color fidelity)</option>
+                      <option value="420">4:2:0 (smaller file)</option>
+                    </Select>
+                  </Field>
+                ) : null}
+              </div>
+
+<Field label="File naming pattern" hint="Use {name} + {ext}">
                 <Input value={settings.fileNamePattern} onChange={(e) => setSettings((p) => ({ ...p, fileNamePattern: e.target.value }))} />
               </Field>
             </div>
           </Card>
 
           <Card title="Why it’s safe" subtitle="What people care about in reviews.">
-            <div className="space-y-2 text-sm text-slate-300 leading-relaxed">
+            <div className="space-y-2 text-sm text-slate-600 leading-relaxed">
               <p><b>Privacy:</b> files never upload.</p>
               <p><b>No watermark:</b> downloads are clean.</p>
               <p><b>Easy:</b> one button converts and downloads.</p>

@@ -59,15 +59,15 @@ export function ConversionFinderTab() {
           </Field>
         </div>
 
-        <div className="mt-4 rounded-2xl bg-slate-950/40 ring-1 ring-white/10 p-4">
+        <div className="mt-4 rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
           {match ? (
             <>
-              <div className="text-sm text-slate-300">Use tab:</div>
-              <div className="mt-1 text-lg font-semibold text-slate-100">{match.tab}</div>
-              <div className="mt-2 text-sm text-slate-300 leading-relaxed">{match.why}</div>
+              <div className="text-sm text-slate-600">Use tab:</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900">{match.tab}</div>
+              <div className="mt-2 text-sm text-slate-600 leading-relaxed">{match.why}</div>
             </>
           ) : (
-            <div className="text-sm text-slate-300 leading-relaxed">{fallback}</div>
+            <div className="text-sm text-slate-600 leading-relaxed">{fallback}</div>
           )}
         </div>
       </Card>

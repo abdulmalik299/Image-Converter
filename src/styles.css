@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   --mx: 50%;
   --my: 45%;
 }
@@ -11,7 +11,7 @@
 * { -webkit-tap-highlight-color: transparent; }
 
 body {
-  @apply bg-slate-950 text-slate-100;
+  @apply text-slate-800;
 }
 
 body::before {
@@ -20,9 +20,9 @@ body::before {
   inset: 0;
   z-index: -11;
   background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(59, 130, 246, 0.2), transparent 24%),
-    radial-gradient(circle at 80% 16%, rgba(251, 113, 133, 0.12), transparent 36%),
-    linear-gradient(160deg, #020617 0%, #020617 34%, #0b1123 100%);
+    radial-gradient(circle at var(--mx) var(--my), rgba(56, 189, 248, 0.18), transparent 24%),
+    radial-gradient(circle at 80% 16%, rgba(99, 102, 241, 0.12), transparent 38%),
+    linear-gradient(160deg, #eef8ff 0%, #edf4ff 42%, #f3f8ff 100%);
 }
 
-a { @apply underline decoration-slate-400 hover:decoration-slate-200; }
+a { @apply underline decoration-slate-400 hover:decoration-slate-700; }

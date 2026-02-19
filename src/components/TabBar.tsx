@@ -3,7 +3,7 @@ import { TABS } from "../tabs/tabs";
 
 export function TabBar({ value, onChange }: { value: TabKey; onChange: (v: TabKey) => void }) {
   return (
-    <div className="mt-6 rounded-3xl border border-slate-200 bg-white/80 p-2 shadow-[0_16px_32px_-28px_rgba(30,41,59,.45)]">
+    <div className="mt-6 rounded-3xl border border-slate-200/90 bg-white/90 p-2 shadow-[0_20px_42px_-32px_rgba(15,23,42,.35)] backdrop-blur">
       <div className="flex flex-wrap gap-2">
         {TABS.map((t) => {
           const active = t.key === value;
@@ -13,11 +13,11 @@ export function TabBar({ value, onChange }: { value: TabKey; onChange: (v: TabKe
               onClick={() => onChange(t.key)}
               className={[
                 "flex-1 min-w-[12.5rem] text-left rounded-2xl px-4 py-3 transition",
-                active ? "bg-sky-50 ring-1 ring-sky-200" : "hover:bg-slate-50"
+                active ? "bg-gradient-to-br from-sky-50 to-indigo-50 ring-1 ring-sky-200" : "hover:bg-slate-50"
               ].join(" ")}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold text-slate-800">{t.icon} {t.label}</div>
+                <div className="flex items-center gap-3 font-semibold text-slate-800">{t.icon} {t.label}</div>
                 {active ? (
                   <span className="text-[11px] rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">Selected</span>
                 ) : null}

@@ -53,7 +53,11 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
                       width: settings.maxWidth,
                       height: settings.maxHeight,
                       quality: settings.quality,
-                      jpgBackground: settings.jpgBackground
+                      jpgBackground: settings.jpgBackground,
+                      smoothing: settings.smoothing,
+                      smoothingQuality: settings.smoothingQuality,
+                      sharpenAmount: settings.sharpenAmount,
+                      chromaSubsampling: settings.chromaSubsampling
                     });
                     out.push({ name: res.outName, blob: res.blob });
                   }
@@ -80,7 +84,7 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
           <Card title="Export settings" subtitle="Choose format + output size.">
             <div className="space-y-4">
               <Field label="Output format">
-                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out: e.target.value as any }))}>
+                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out: e.target.value as "png" | "jpg" | "webp" }))}>
                   <option value="png">PNG</option>
                   <option value="jpg">JPG</option>
                   <option value="webp">WebP</option>
@@ -107,32 +111,44 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
                 </Field>
               ) : null}
 
-<div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
-  <div className="text-sm font-semibold text-slate-100">Quick size presets</div>
-  <div className="mt-2 grid grid-cols-1 gap-2">
-    {SOCIAL_SIZE_PRESETS.map((p) => (
-      <button
-        key={p.id}
-        className="rounded-xl bg-white/5 px-3 py-2 text-left ring-1 ring-white/10 hover:bg-white/10"
-        onClick={() => setSettings((s) => ({ ...s, maxWidth: p.w, maxHeight: p.h }))}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="font-semibold text-sm text-slate-100">{p.label}</div>
-          <div className="text-xs text-slate-400">{p.w}×{p.h}</div>
-        </div>
-        <div className="text-xs text-slate-400 mt-1">{p.note}</div>
-      </button>
-    ))}
-  </div>
-</div>
+              <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3 space-y-3">
+                <div className="text-sm font-semibold text-slate-800">Advanced export quality</div>
+                <Field label="Resampling">
+                  <Select value={settings.smoothing ? settings.smoothingQuality : "off"} onChange={(e)=>setSettings((p)=>({ ...p, smoothing: e.target.value !== "off", smoothingQuality: (e.target.value === "off" ? p.smoothingQuality : e.target.value as "low" | "medium" | "high") }))}>
+                    <option value="off">Nearest / pixelated</option>
+                    <option value="low">Low smoothing</option>
+                    <option value="medium">Medium smoothing</option>
+                    <option value="high">High smoothing</option>
+                  </Select>
+                </Field>
 
-              <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-4 text-xs text-slate-300 leading-relaxed">
-                <div className="font-semibold text-slate-100 mb-1">Popular sizes</div>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>Instagram: 1080×1080</li>
-                  <li>TikTok/Reels: 1080×1920</li>
-                  <li>YouTube thumbnail: 1280×720</li>
-                </ul>
+                {(settings.out === "jpg" || settings.out === "webp") ? (
+                  <Field label="Chroma quality">
+                    <Select value={settings.chromaSubsampling} onChange={(e)=>setSettings((p)=>({ ...p, chromaSubsampling: e.target.value as "420" | "444" }))}>
+                      <option value="444">4:4:4 (best color fidelity)</option>
+                      <option value="420">4:2:0 (smaller file)</option>
+                    </Select>
+                  </Field>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
+                <div className="text-sm font-semibold text-slate-900">Quick size presets</div>
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  {SOCIAL_SIZE_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      className="rounded-xl bg-white px-3 py-2 text-left ring-1 ring-slate-200 hover:bg-slate-50"
+                      onClick={() => setSettings((s) => ({ ...s, maxWidth: p.w, maxHeight: p.h }))}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-sm text-slate-900">{p.label}</div>
+                        <div className="text-xs text-slate-400">{p.w}×{p.h}</div>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">{p.note}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </Card>
