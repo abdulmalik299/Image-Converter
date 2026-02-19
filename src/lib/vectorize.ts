@@ -11,7 +11,7 @@ export type VectorPresetKey =
 
 export type VectorizeSettings = {
   preset: VectorPresetKey;
-  colorCount: number;           // 2..64
+  colorCount: number;           // 2..128
   pathOmit: number;             // 0..50
   blurRadius: number;           // 0..5
   lineThreshold: number;        // 0..100
@@ -53,7 +53,7 @@ function mergeOptions(s: VectorizeSettings): Record<string, any> {
   const base = presetOptions(s.preset);
   return {
     ...base,
-    numberofcolors: clamp(s.colorCount, 2, 64),
+    numberofcolors: clamp(s.colorCount, 2, 128),
     pathomit: clamp(s.pathOmit, 0, 50),
     blurradius: clamp(s.blurRadius, 0, 5),
     ltres: clamp(s.lineThreshold, 0, 100),

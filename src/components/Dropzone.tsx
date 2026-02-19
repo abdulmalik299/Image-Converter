@@ -15,7 +15,7 @@ export function Dropzone(props: {
     <div
       className={[
         "rounded-2xl border border-dashed p-5 transition",
-        over ? "border-sky-400/80 bg-sky-500/5" : "border-white/15 bg-white/5"
+        over ? "border-sky-300 bg-sky-50" : "border-slate-300 bg-slate-50/70"
       ].join(" ")}
       onDragEnter={(e) => { e.preventDefault(); setOver(true); }}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
@@ -34,14 +34,14 @@ export function Dropzone(props: {
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="space-y-1">
-          <div className="text-sm font-semibold">{label}</div>
-          <div className="text-xs text-slate-300">
+          <div className="text-sm font-semibold text-slate-800">{label}</div>
+          <div className="text-xs text-slate-600">
             {helper ?? "Drag & drop files here, or click to choose from your device."}
           </div>
-          <div className="text-[11px] text-slate-400">Accepted: {accept.join(", ")}{multiple ? " • Multiple files supported" : ""}</div>
+          <div className="text-[11px] text-slate-500">Accepted: {accept.join(", ")}{multiple ? " • Multiple files supported" : ""}</div>
         </div>
 
-        <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 hover:bg-white/15">
+        <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">
           Choose files
           <input
             id="file-input"

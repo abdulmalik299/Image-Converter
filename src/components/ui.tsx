@@ -1,34 +1,49 @@
-import { PropsWithChildren } from "react";
+import { PropsWithChildren, useEffect } from "react";
 
 export function AppShell({ children }: PropsWithChildren) {
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const x = `${Math.round((e.clientX / window.innerWidth) * 100)}%`;
+      const y = `${Math.round((e.clientY / window.innerHeight) * 100)}%`;
+      document.documentElement.style.setProperty("--mx", x);
+      document.documentElement.style.setProperty("--my", y);
+    };
+
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
   return (
     <div className="min-h-screen">
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-slate-900 ring-1 ring-white/10 shadow-soft flex items-center justify-center">
-              <img src="/favicon.svg" className="h-7 w-7" alt="" />
+      <div className="mx-auto max-w-6xl px-4 py-8 md:py-10">
+        <header className="relative overflow-hidden rounded-3xl border border-sky-100/90 bg-white/85 p-6 shadow-[0_20px_45px_-30px_rgba(2,132,199,.45)] backdrop-blur">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-300" />
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-lg shadow-sky-200/60 ring-1 ring-sky-100 flex items-center justify-center">
+                <img src="/logo-mark.svg" className="h-9 w-9" alt="Image Converter logo" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Image Converter</h1>
+                <p className="text-sm text-slate-600">
+                  Clean, private image conversion with calm design and one-click results.
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Image Converter</h1>
-              <p className="text-sm text-slate-300">
-                Convert PNG/JPG/WebP and create SVG locally • No uploads • Batch ZIP • Offline-ready
-              </p>
-            </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="good">Files never upload</Badge>
-            <Badge tone="info">Works offline after first load</Badge>
-            <Badge tone="muted">Made for GitHub Pages</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="good">🔒 Private on your device</Badge>
+              <Badge tone="info">⚡ Fast & offline-ready</Badge>
+              <Badge tone="muted">🎨 Better SVG quality</Badge>
+            </div>
           </div>
         </header>
 
         <main className="mt-6">{children}</main>
 
-        <footer className="mt-10 border-t border-white/10 pt-6 text-xs text-slate-400 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <p>Privacy-first: everything is processed in your browser.</p>
-          <p>Tip: If a format doesn’t open, try Chrome/Edge (format support varies).</p>
+        <footer className="mt-10 border-t border-slate-200 pt-6 text-xs text-slate-500 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <p>Everything runs in your browser. Your images are never uploaded.</p>
+          <p>If a format fails, try Chrome or Edge (format support depends on browser).</p>
         </footer>
       </div>
     </div>
@@ -37,11 +52,11 @@ export function AppShell({ children }: PropsWithChildren) {
 
 export function Card({ title, subtitle, right, children }: PropsWithChildren<{ title: string; subtitle?: string; right?: React.ReactNode }>) {
   return (
-    <section className="rounded-2xl bg-slate-900/40 ring-1 ring-white/10 shadow-soft">
-      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+    <section className="rounded-3xl border border-slate-200 bg-white/85 shadow-[0_20px_40px_-34px_rgba(15,23,42,.45)] backdrop-blur-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="space-y-1">
-          <h2 className="text-base font-semibold">{title}</h2>
-          {subtitle ? <p className="text-sm text-slate-300">{subtitle}</p> : null}
+          <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+          {subtitle ? <p className="text-sm text-slate-600">{subtitle}</p> : null}
         </div>
         {right ? <div className="shrink-0">{right}</div> : null}
       </div>
@@ -53,12 +68,12 @@ export function Card({ title, subtitle, right, children }: PropsWithChildren<{ t
 export function Badge({ children, tone = "muted" }: PropsWithChildren<{ tone?: "muted" | "good" | "info" | "warn" }>) {
   const cls =
     tone === "good"
-      ? "bg-emerald-500/10 text-emerald-200 ring-emerald-400/20"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
       : tone === "info"
-      ? "bg-sky-500/10 text-sky-200 ring-sky-400/20"
+      ? "bg-sky-50 text-sky-700 ring-sky-200"
       : tone === "warn"
-      ? "bg-amber-500/10 text-amber-100 ring-amber-400/20"
-      : "bg-white/5 text-slate-200 ring-white/10";
+      ? "bg-amber-50 text-amber-700 ring-amber-200"
+      : "bg-slate-100 text-slate-700 ring-slate-200";
   return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 ${cls}`}>{children}</span>;
 }
 
@@ -70,10 +85,10 @@ export function Button(
     "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed";
   const styles =
     variant === "primary"
-      ? "bg-sky-500/90 hover:bg-sky-500 text-slate-950"
+      ? "bg-sky-600 hover:bg-sky-700 text-white"
       : variant === "danger"
-      ? "bg-rose-500/90 hover:bg-rose-500 text-slate-950"
-      : "bg-white/5 hover:bg-white/10 text-slate-100 ring-1 ring-white/10";
+      ? "bg-rose-600 hover:bg-rose-700 text-white"
+      : "bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-200";
   return <button className={`${base} ${styles} ${className}`} {...rest} />;
 }
 
@@ -81,8 +96,8 @@ export function Field({ label, hint, children }: PropsWithChildren<{ label: stri
   return (
     <label className="block space-y-1">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-semibold text-slate-200">{label}</span>
-        {hint ? <span className="text-xs text-slate-400">{hint}</span> : null}
+        <span className="text-sm font-semibold text-slate-700">{label}</span>
+        {hint ? <span className="text-xs text-slate-500">{hint}</span> : null}
       </div>
       {children}
     </label>
@@ -94,8 +109,8 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={[
-        "w-full rounded-xl bg-slate-950/60 px-3 py-2 text-sm ring-1 ring-white/10",
-        "placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-400/60"
+        "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700",
+        "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300"
       ].join(" ")}
     />
   );
@@ -106,23 +121,23 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
     <select
       {...props}
       className={[
-        "w-full rounded-xl bg-slate-950/60 px-3 py-2 text-sm ring-1 ring-white/10",
-        "focus:outline-none focus:ring-2 focus:ring-sky-400/60"
+        "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700",
+        "focus:outline-none focus:ring-2 focus:ring-sky-300"
       ].join(" ")}
     />
   );
 }
 
 export function Slider(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} type="range" className="w-full accent-sky-400" />;
+  return <input {...props} type="range" className="w-full accent-sky-600" />;
 }
 
 export function Divider({ label }: { label?: string }) {
   return (
     <div className="flex items-center gap-3 py-2">
-      <div className="h-px flex-1 bg-white/10" />
-      {label ? <div className="text-xs text-slate-400">{label}</div> : null}
-      <div className="h-px flex-1 bg-white/10" />
+      <div className="h-px flex-1 bg-slate-200" />
+      {label ? <div className="text-xs text-slate-500">{label}</div> : null}
+      <div className="h-px flex-1 bg-slate-200" />
     </div>
   );
 }
