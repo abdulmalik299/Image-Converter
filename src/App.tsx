@@ -13,6 +13,7 @@ import { SvgToRasterTab } from "./tabs/SvgToRasterTab";
 import { BatchZipTab } from "./tabs/BatchZipTab";
 import { ConversionFinderTab } from "./tabs/ConversionFinderTab";
 import { HelpTab } from "./tabs/HelpTab";
+import { UpscaleTab } from "./tabs/UpscaleTab";
 
 export default function App() {
   const [tab, setTab] = useLocal<TabKey>("ic.tab", "png-jpg");
@@ -78,6 +79,8 @@ export default function App() {
         return <BatchZipTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
       case "finder":
         return <ConversionFinderTab />;
+      case "upscale":
+        return <UpscaleTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
       case "help":
         return <HelpTab />;
       default:

@@ -21,7 +21,7 @@ export type CommonRasterSettings = {
 
 export const defaultRasterSettings: CommonRasterSettings = {
   out: "png",
-  quality: 94,
+  quality: 100,
   keepSize: true,
   maxWidth: 2048,
   maxHeight: 2048,

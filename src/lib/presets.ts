@@ -41,3 +41,24 @@ export const FORMAT_TIPS: FormatTip[] = [
     notes: ["Vector shapes not pixels", "Raster→SVG is tracing/estimation"],
   },
 ];
+
+export type RasterFormat = "png" | "jpg" | "webp";
+
+export function detectRasterFormat(file: File): RasterFormat {
+  const t = (file.type || "").toLowerCase();
+  if (t.includes("png")) return "png";
+  if (t.includes("jpeg") || t.includes("jpg")) return "jpg";
+  if (t.includes("webp")) return "webp";
+
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".png")) return "png";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "jpg";
+  if (name.endsWith(".webp")) return "webp";
+  return "png";
+}
+
+export const FORMAT_QUALITY_PRESETS: Record<RasterFormat, { label: string; quality: number; smoothingQuality: "medium" | "high"; sharpenAmount: number; chromaSubsampling: "420" | "444" }> = {
+  png: { label: "PNG master", quality: 100, smoothingQuality: "high", sharpenAmount: 15, chromaSubsampling: "444" },
+  jpg: { label: "JPG photo max", quality: 100, smoothingQuality: "high", sharpenAmount: 18, chromaSubsampling: "444" },
+  webp: { label: "WebP HQ", quality: 100, smoothingQuality: "high", sharpenAmount: 16, chromaSubsampling: "444" }
+};
