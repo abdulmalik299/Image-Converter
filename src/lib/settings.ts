@@ -17,6 +17,12 @@ export type CommonRasterSettings = {
   sharpenAmount: number; // 0..100
   pngCompression: "balanced" | "quality";
   chromaSubsampling: ChromaSubsampling;
+  aiEnhance: boolean;
+  autoColor: boolean;
+  aiContrast: number;
+  aiSaturation: number;
+  aiExposure: number;
+  aiDenoise: number;
 };
 
 export const defaultRasterSettings: CommonRasterSettings = {
@@ -33,5 +39,11 @@ export const defaultRasterSettings: CommonRasterSettings = {
   smoothingQuality: "high",
   sharpenAmount: 15,
   pngCompression: "quality",
-  chromaSubsampling: "444"
+  chromaSubsampling: "444",
+  aiEnhance: true,
+  autoColor: true,
+  aiContrast: 38,
+  aiSaturation: 24,
+  aiExposure: 10,
+  aiDenoise: 22
 };
