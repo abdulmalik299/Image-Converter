@@ -39,7 +39,7 @@ export function FlowBackground() {
     let raf = 0;
 
     const particles: Particle[] = [];
-    const particleCount = 95;
+    const particleCount = 70;
 
     const resetParticles = () => {
       particles.length = 0;
@@ -96,9 +96,9 @@ export function FlowBackground() {
         height * 0.5,
         Math.max(width, height) * 0.82
       );
-      radialA.addColorStop(0, "rgba(58, 94, 173, 0.21)");
-      radialA.addColorStop(0.55, "rgba(16, 30, 63, 0.34)");
-      radialA.addColorStop(1, "rgba(2, 8, 26, 0.84)");
+      radialA.addColorStop(0, "rgba(142, 197, 255, 0.24)");
+      radialA.addColorStop(0.55, "rgba(206, 232, 255, 0.3)");
+      radialA.addColorStop(1, "rgba(238, 247, 255, 0.76)");
       ctx.fillStyle = radialA;
       ctx.fillRect(0, 0, width, height);
 
@@ -110,8 +110,8 @@ export function FlowBackground() {
         height * 0.85,
         Math.max(width, height) * 0.8
       );
-      radialB.addColorStop(0, "rgba(255, 89, 130, 0.12)");
-      radialB.addColorStop(1, "rgba(255, 89, 130, 0)");
+      radialB.addColorStop(0, "rgba(129, 140, 248, 0.1)");
+      radialB.addColorStop(1, "rgba(129, 140, 248, 0)");
       ctx.fillStyle = radialB;
       ctx.fillRect(0, 0, width, height);
     };
@@ -158,10 +158,10 @@ export function FlowBackground() {
         const pinkWeight = clamp((row / lineCount) * 0.85 + warmMix * 0.4, 0.05, 0.92);
         const strokeHue = hue + pinkWeight * 125;
 
-        ctx.strokeStyle = `hsla(${strokeHue}, ${sat}%, ${light + pinkWeight * 8}%, ${0.06 + pinkWeight * 0.15})`;
+        ctx.strokeStyle = `hsla(${strokeHue}, ${sat}%, ${light + pinkWeight * 8}%, ${0.07 + pinkWeight * 0.07})`;
         ctx.lineWidth = 1 + pinkWeight * 1.8;
-        ctx.shadowColor = `hsla(${strokeHue}, 90%, 70%, ${0.08 + pinkWeight * 0.22})`;
-        ctx.shadowBlur = 8 + pinkWeight * 10;
+        ctx.shadowColor = `hsla(${strokeHue}, 90%, 70%, ${0.08 + pinkWeight * 0.08})`;
+        ctx.shadowBlur = 5 + pinkWeight * 5;
         ctx.stroke();
       }
       ctx.shadowBlur = 0;
@@ -188,7 +188,7 @@ export function FlowBackground() {
         const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
         const pInfluence = clamp(1 - pDist / connectionDistance, 0, 1);
 
-        const hue = 195 + p.hueShift + pInfluence * 95;
+        const hue = 195 + p.hueShift + pInfluence * 70;
         const size = p.size + pInfluence * 2.3;
 
         ctx.beginPath();

@@ -63,7 +63,13 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
                         maxWidth: settings.maxWidth,
                         maxHeight: settings.maxHeight,
                         jpgBackground: settings.jpgBackground,
-                        stripMetadataHint: settings.stripMetadataHint
+                        stripMetadataHint: settings.stripMetadataHint,
+                        resizeMode: settings.resizeMode,
+                        smoothing: settings.smoothing,
+                        smoothingQuality: settings.smoothingQuality,
+                        sharpenAmount: settings.sharpenAmount,
+                        pngCompression: settings.pngCompression,
+                        chromaSubsampling: settings.chromaSubsampling
                       });
                       downloadBlob(res.blob, nameByPattern(settings.fileNamePattern, base, settings.out));
                     }
@@ -91,7 +97,7 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
           <Card title="Output settings" subtitle="Simple controls.">
             <div className="space-y-4">
               <Field label="Output format">
-                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out:e.target.value as any }))}>
+                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out:e.target.value as "png" | "jpg" | "webp" }))}>
                   <option value="png">PNG</option>
                   <option value="jpg">JPG</option>
                   <option value="webp">WebP</option>
@@ -104,13 +110,13 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
                 </Field>
               ) : null}
 
-              <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-3">
+              <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold">Resize</div>
                     <div className="text-xs text-slate-400 mt-1">Off = keep original dimensions.</div>
                   </div>
-                  <button className="rounded-xl bg-white/10 px-3 py-1.5 text-xs ring-1 ring-white/10 hover:bg-white/15"
+                  <button className="rounded-xl bg-white px-3 py-1.5 text-xs ring-1 ring-slate-200 hover:bg-slate-100"
                     onClick={()=>setSettings(p=>({ ...p, keepSize: !p.keepSize }))}>
                     {settings.keepSize ? "Keep size" : "Resize"}
                   </button>
@@ -124,6 +130,12 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
                     <Field label="Max height">
                       <Input type="number" min={64} max={12000} value={settings.maxHeight} onChange={(e)=>setSettings(p=>({ ...p, maxHeight:Number(e.target.value) }))} />
                     </Field>
+                    <Field label="Resize mode">
+                      <Select value={settings.resizeMode} onChange={(e)=>setSettings((p)=>({ ...p, resizeMode: e.target.value as "contain" | "cover" }))}>
+                        <option value="contain">Contain (fit inside)</option>
+                        <option value="cover">Cover (fill area, can crop)</option>
+                      </Select>
+                    </Field>
                     <div className="col-span-2 text-xs text-slate-400">Aspect ratio is preserved.</div>
                   </div>
                 ) : null}
@@ -135,7 +147,34 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
                 </Field>
               ) : null}
 
-              <Field label="File naming pattern" hint="Use {name} + {ext}">
+              
+
+              <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3 space-y-3">
+                <div className="text-sm font-semibold text-slate-800">Advanced quality</div>
+                <Field label="Resampling">
+                  <Select value={settings.smoothing ? settings.smoothingQuality : "off"} onChange={(e)=>setSettings((p)=>({ ...p, smoothing: e.target.value !== "off", smoothingQuality: (e.target.value === "off" ? p.smoothingQuality : e.target.value) as "low" | "medium" | "high" }))}>
+                    <option value="off">Nearest / pixelated</option>
+                    <option value="low">Low smoothing</option>
+                    <option value="medium">Medium smoothing</option>
+                    <option value="high">High smoothing</option>
+                  </Select>
+                </Field>
+
+                <Field label="Sharpen after resize" hint={`${settings.sharpenAmount}%`}>
+                  <Slider min={0} max={100} value={settings.sharpenAmount} onChange={(e)=>setSettings((p)=>({ ...p, sharpenAmount: Number(e.target.value) }))} />
+                </Field>
+
+                {(settings.out === "jpg" || settings.out === "webp") ? (
+                  <Field label="Chroma quality">
+                    <Select value={settings.chromaSubsampling} onChange={(e)=>setSettings((p)=>({ ...p, chromaSubsampling: e.target.value as "420" | "444" }))}>
+                      <option value="444">4:4:4 (best color fidelity)</option>
+                      <option value="420">4:2:0 (smaller file)</option>
+                    </Select>
+                  </Field>
+                ) : null}
+              </div>
+
+<Field label="File naming pattern" hint="Use {name} + {ext}">
                 <Input value={settings.fileNamePattern} onChange={(e)=>setSettings(p=>({ ...p, fileNamePattern:e.target.value }))} />
               </Field>
             </div>

@@ -1,35 +1,60 @@
 import { PropsWithChildren } from "react";
 
+function HeaderGlyph() {
+  return (
+    <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
+      <defs>
+        <linearGradient id="logoG" x1="10" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#22d3ee" />
+          <stop offset="1" stopColor="#2563eb" />
+        </linearGradient>
+      </defs>
+      <rect x="7" y="7" width="50" height="50" rx="13" fill="url(#logoG)" />
+      <path d="M16 42 25 31l8 7 14-16" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="46" cy="22" r="5" fill="#bfdbfe" />
+    </svg>
+  );
+}
+
+function TinyIcon({ path }: { path: React.ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {path}
+    </svg>
+  );
+}
+
 export function AppShell({ children }: PropsWithChildren) {
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-6xl px-4 py-8 md:py-10">
-        <header className="relative overflow-hidden rounded-3xl border border-sky-100/90 bg-white/85 p-6 shadow-[0_20px_45px_-30px_rgba(2,132,199,.45)] backdrop-blur">
+        <header className="relative overflow-hidden rounded-3xl border border-sky-100/90 bg-white/88 p-6 shadow-[0_26px_55px_-36px_rgba(37,99,235,.45)] backdrop-blur">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-300" />
+          <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gradient-to-br from-sky-200/40 to-indigo-200/0 blur-2xl" />
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div className="flex items-center gap-4">
               <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-lg shadow-sky-200/60 ring-1 ring-sky-100 flex items-center justify-center">
-                <img src="/logo-mark.svg" className="h-9 w-9" alt="Image Converter logo" />
+                <HeaderGlyph />
               </div>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Image Converter</h1>
-                <p className="text-sm text-slate-600">
-                  Clean, private image conversion with calm design and one-click results.
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Image Converter</h1>
+                <p className="text-base text-slate-600">
+                  Premium image conversion with calm design, better quality controls, and one-click results.
                 </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="good">🔒 Private on your device</Badge>
-              <Badge tone="info">⚡ Fast & offline-ready</Badge>
-              <Badge tone="muted">🎨 Better SVG quality</Badge>
+              <Badge tone="good"><TinyIcon path={<><path d="M4 12l5 5L20 6"/></>} /> Private on-device</Badge>
+              <Badge tone="info"><TinyIcon path={<><path d="M13 2 4 14h7l-1 8 10-13h-7z"/></>} /> Fast & offline-ready</Badge>
+              <Badge tone="muted"><TinyIcon path={<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>} /> High fidelity output</Badge>
             </div>
           </div>
         </header>
 
         <main className="mt-6">{children}</main>
 
-        <footer className="mt-10 border-t border-slate-200 pt-6 text-xs text-slate-500 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <footer className="mt-10 border-t border-slate-200 pt-6 text-xs text-slate-600 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <p>Everything runs in your browser. Your images are never uploaded.</p>
           <p>If a format fails, try Chrome or Edge (format support depends on browser).</p>
         </footer>
@@ -40,7 +65,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
 export function Card({ title, subtitle, right, children }: PropsWithChildren<{ title: string; subtitle?: string; right?: React.ReactNode }>) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white/85 shadow-[0_20px_40px_-34px_rgba(15,23,42,.45)] backdrop-blur-sm">
+    <section className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_20px_40px_-34px_rgba(15,23,42,.28)] backdrop-blur-sm">
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
@@ -62,7 +87,7 @@ export function Badge({ children, tone = "muted" }: PropsWithChildren<{ tone?: "
       : tone === "warn"
       ? "bg-amber-50 text-amber-700 ring-amber-200"
       : "bg-slate-100 text-slate-700 ring-slate-200";
-  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 ${cls}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 ${cls}`}>{children}</span>;
 }
 
 export function Button(
