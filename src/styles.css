@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   --mx: 50%;
   --my: 45%;
 }
@@ -11,36 +11,18 @@
 * { -webkit-tap-highlight-color: transparent; }
 
 body {
-  @apply bg-slate-50 text-slate-800;
+  @apply bg-slate-950 text-slate-100;
 }
 
 body::before {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: -2;
+  z-index: -11;
   background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(56, 189, 248, 0.2), transparent 35%),
-    radial-gradient(circle at 15% 20%, rgba(191, 219, 254, 0.7), transparent 42%),
-    linear-gradient(165deg, #ffffff 0%, #f8fbff 52%, #eaf4ff 100%);
+    radial-gradient(circle at var(--mx) var(--my), rgba(59, 130, 246, 0.2), transparent 24%),
+    radial-gradient(circle at 80% 16%, rgba(251, 113, 133, 0.12), transparent 36%),
+    linear-gradient(160deg, #020617 0%, #020617 34%, #0b1123 100%);
 }
 
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background-image: radial-gradient(rgba(56, 189, 248, 0.22) 1.2px, transparent 1.2px);
-  background-size: 24px 24px;
-  opacity: 0.45;
-  animation: driftDots 28s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes driftDots {
-  0% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(-14px, 12px, 0); }
-  100% { transform: translate3d(0, 0, 0); }
-}
-
-a { @apply underline decoration-slate-300 hover:decoration-slate-500; }
+a { @apply underline decoration-slate-400 hover:decoration-slate-200; }
