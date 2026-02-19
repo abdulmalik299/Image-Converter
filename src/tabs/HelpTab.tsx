@@ -54,20 +54,30 @@ export function HelpTab() {
       <Card title="Which format should I choose?" subtitle="A practical guide.">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {FORMAT_TIPS.map((f) => (
-            <div key={f.id} className="rounded-2xl bg-slate-950/40 ring-1 ring-white/10 p-4">
-              <div className="text-sm font-semibold text-slate-100">{f.title}</div>
+            <div key={f.id} className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
+              <div className="text-sm font-semibold text-slate-800">{f.title}</div>
 
-              <div className="mt-3 text-xs text-slate-400">Good for</div>
-              <ul className="mt-1 list-disc pl-5 text-sm text-slate-300 space-y-1">{f.goodFor.map((x) => <li key={x}>{x}</li>)}</ul>
+              <div className="mt-3 text-xs text-slate-500">Good for</div>
+              <ul className="mt-1 list-disc pl-5 text-sm text-slate-600 space-y-1">{f.goodFor.map((x) => <li key={x}>{x}</li>)}</ul>
 
-              <div className="mt-3 text-xs text-slate-400">Avoid for</div>
-              <ul className="mt-1 list-disc pl-5 text-sm text-slate-300 space-y-1">{f.avoidFor.map((x) => <li key={x}>{x}</li>)}</ul>
+              <div className="mt-3 text-xs text-slate-500">Avoid for</div>
+              <ul className="mt-1 list-disc pl-5 text-sm text-slate-600 space-y-1">{f.avoidFor.map((x) => <li key={x}>{x}</li>)}</ul>
 
-              <div className="mt-3 text-xs text-slate-400">Notes</div>
-              <ul className="mt-1 list-disc pl-5 text-sm text-slate-300 space-y-1">{f.notes.map((x) => <li key={x}>{x}</li>)}</ul>
+              <div className="mt-3 text-xs text-slate-500">Notes</div>
+              <ul className="mt-1 list-disc pl-5 text-sm text-slate-600 space-y-1">{f.notes.map((x) => <li key={x}>{x}</li>)}</ul>
             </div>
           ))}
         </div>
+      </Card>
+
+      <Card title="Most requested features now included" subtitle="Based on common user requests for image tools.">
+        <ul className="list-disc pl-5 space-y-2 text-sm text-slate-600">
+          <li>Higher SVG tracing quality with up to 128 colors.</li>
+          <li>Batch conversion with one ZIP download.</li>
+          <li>Conversion Finder to guide beginners quickly.</li>
+          <li>Private local processing: files stay on your device.</li>
+          <li>Cleaner UI labels focused on normal users.</li>
+        </ul>
       </Card>
     </div>
   );

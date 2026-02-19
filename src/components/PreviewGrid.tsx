@@ -21,11 +21,11 @@ export function PreviewGrid({
   return (
     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((it) => (
-        <div key={it.id} className="rounded-2xl bg-slate-950/40 ring-1 ring-white/10 overflow-hidden">
-          <div className="aspect-[16/10] bg-slate-950/70 flex items-center justify-center overflow-hidden">
+        <div key={it.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <div className="aspect-[16/10] bg-slate-50 flex items-center justify-center overflow-hidden">
             {it.file.type === "image/svg+xml" ? (
-              <div className="w-full h-full flex items-center justify-center text-xs text-slate-300 p-4 text-center">
-                SVG file<br/><span className="text-slate-400">(preview may vary)</span>
+              <div className="w-full h-full flex items-center justify-center text-xs text-slate-600 p-4 text-center">
+                SVG file<br/><span className="text-slate-500">(preview may vary)</span>
               </div>
             ) : (
               <img src={it.url} alt="" className="max-h-full max-w-full object-contain" />
@@ -34,17 +34,17 @@ export function PreviewGrid({
           <div className="p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">{it.file.name}</div>
-                <div className="text-xs text-slate-400">
+                <div className="truncate text-sm font-semibold text-slate-800">{it.file.name}</div>
+                <div className="text-xs text-slate-500">
                   {it.file.type || "unknown"} • {humanBytes(it.file.size)}
                 </div>
-                {it.note ? <div className="text-xs text-amber-200/90 mt-1">{it.note}</div> : null}
+                {it.note ? <div className="text-xs text-amber-600 mt-1">{it.note}</div> : null}
               </div>
               <div className="flex items-center gap-2">
                 {extraRight ? extraRight(it.id) : null}
                 {onRemove ? (
                   <button
-                    className="rounded-lg bg-white/5 px-2 py-1 text-xs ring-1 ring-white/10 hover:bg-white/10"
+                    className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200"
                     onClick={() => onRemove(it.id)}
                     title="Remove"
                   >

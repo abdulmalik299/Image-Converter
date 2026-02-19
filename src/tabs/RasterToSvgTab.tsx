@@ -14,7 +14,7 @@ const PRESET_LABELS: Record<VectorPresetKey,string> = {
   logo_clean: "Logo (clean) — sharp, few colors",
   logo_detailed: "Logo (detailed) — more detail, still crisp",
   illustration: "Illustration — balanced colors",
-  photo_soft: "Photo (soft) — big SVG, best-effort",
+  photo_soft: "Photo (soft) — more detail, larger SVG",
   pixel_art: "Pixel art — keeps blocky edges",
   custom: "Custom — you control everything"
 };
@@ -50,15 +50,15 @@ export function RasterToSvgTab() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-5">
           <Card
-            title="PNG/JPG/WebP → SVG (advanced)"
-            subtitle="Best for logos, icons, and illustrations. Photos work, but can become heavy."
-            right={<Badge tone="warn">Tracing pixels</Badge>}
+            title="PNG/JPG/WebP → SVG"
+            subtitle="Best for logos, icons, and illustrations. Now supports up to 128 colors for richer output."
+            right={<Badge tone="info">🎯 Better detail</Badge>}
           >
             <Dropzone
               accept={ACCEPT}
               multiple
               label="Drop raster images here"
-              helper="Clean, high-contrast logos vectorize best. Photos are a best-effort conversion."
+              helper="For best results, use clear images with good contrast. Photos may produce larger SVG files."
               onFiles={(files) => {
                 const next: PreviewItem[] = files.map((f)=>({ id:uid(), file:f, url:URL.createObjectURL(f) }));
                 setItems((p)=>[...p, ...next].slice(0, 30));
@@ -72,11 +72,11 @@ export function RasterToSvgTab() {
                 if(hit) URL.revokeObjectURL(hit.url);
                 return p.filter(x=>x.id!==rid);
               })}
-              extraRight={(rid)=>busy===rid ? <span className="text-xs text-sky-200">Tracing…</span> : null}
+              extraRight={(rid)=>busy===rid ? <span className="text-xs text-sky-700">Tracing…</span> : null}
             />
 
             {warning ? (
-              <div className="mt-4 rounded-2xl bg-amber-500/10 ring-1 ring-amber-400/20 px-4 py-3 text-sm text-amber-100">
+              <div className="mt-4 rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-700">
                 {warning}
               </div>
             ) : null}
@@ -117,8 +117,8 @@ export function RasterToSvgTab() {
             </div>
           </Card>
 
-          <Card title="How to get the closest SVG" subtitle="Honest explanation in simple language.">
-            <div className="space-y-3 text-sm text-slate-300 leading-relaxed">
+          <Card title="How to get beautiful SVG results" subtitle="Simple tips that work for most people.">
+            <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
               <p>
                 SVG stores <b>shapes</b>, raster images store <b>pixels</b>. When you convert raster → SVG, the tool must guess shapes from pixels.
                 That’s why results vary.
@@ -127,14 +127,14 @@ export function RasterToSvgTab() {
                 <li><b>Logos</b>: usually very close (often 90%+ visually).</li>
                 <li><b>Photos</b>: can become huge; still not identical.</li>
                 <li>More colors = closer look, bigger SVG.</li>
-                <li>More simplify = smaller SVG, less detail.</li>
+                <li>Higher simplify = smaller SVG, less detail.</li>
               </ul>
             </div>
           </Card>
         </div>
 
         <div className="space-y-5">
-          <Card title="Vector settings" subtitle="Preset first. Only adjust if needed.">
+          <Card title="Vector settings" subtitle="Start with a preset, then fine-tune only if needed.">
             <div className="space-y-4">
               <Field label="Preset">
                 <Select value={settings.preset} onChange={(e)=>update({ preset: e.target.value as any })}>
@@ -142,30 +142,37 @@ export function RasterToSvgTab() {
                 </Select>
               </Field>
 
-              <Field label="Colors" hint={`${settings.colorCount}`}>
-                <Slider min={2} max={64} value={settings.colorCount} onChange={(e)=>update({ colorCount:Number(e.target.value) })} />
+              <Field label="Colors" hint={`${settings.colorCount} / 128`}>
+                <Slider min={2} max={128} value={settings.colorCount} onChange={(e)=>update({ colorCount:Number(e.target.value) })} />
               </Field>
 
-              <Field label="Simplify (path omit)" hint={`${settings.pathOmit}`}>
+              <Field label="Simplify details" hint={`${settings.pathOmit}`}>
                 <Slider min={0} max={50} value={settings.pathOmit} onChange={(e)=>update({ pathOmit:Number(e.target.value) })} />
               </Field>
 
-              <Field label="Smoothness (blur radius)" hint={`${settings.blurRadius}`}>
+              <Field label="Smoothness" hint={`${settings.blurRadius}`}>
                 <Slider min={0} max={5} value={settings.blurRadius} onChange={(e)=>update({ blurRadius:Number(e.target.value) })} />
               </Field>
 
-              <Field label="Edge sensitivity (line threshold)" hint={`${settings.lineThreshold}`}>
+              <Field label="Edge sensitivity" hint={`${settings.lineThreshold}`}>
                 <Slider min={0} max={100} value={settings.lineThreshold} onChange={(e)=>update({ lineThreshold:Number(e.target.value) })} />
               </Field>
 
-              <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
+              <div className="rounded-2xl bg-sky-50 ring-1 ring-sky-100 p-4">
+                <div className="text-sm font-semibold text-slate-800">Popular request added: richer colors</div>
+                <div className="mt-1 text-xs text-slate-600">
+                  The maximum tracing colors are now doubled from 64 to 128 for higher-fidelity SVG output.
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-sm font-semibold">Background</div>
-                    <div className="text-xs text-slate-400 mt-1">Transparent is common for logos.</div>
+                    <div className="text-xs text-slate-500 mt-1">Transparent is best for logos and stickers.</div>
                   </div>
                   <button
-                    className="rounded-xl bg-white/10 px-3 py-1.5 text-xs ring-1 ring-white/10 hover:bg-white/15"
+                    className="rounded-xl bg-white px-3 py-1.5 text-xs ring-1 ring-slate-200 hover:bg-slate-100"
                     onClick={()=>update({ transparentBackground: !settings.transparentBackground })}
                   >
                     {settings.transparentBackground ? "Transparent" : "Solid"}

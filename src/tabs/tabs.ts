@@ -9,14 +9,14 @@ export type TabKey =
   | "finder"
   | "help";
 
-export const TABS: { key: TabKey; label: string; desc: string }[] = [
-  { key: "png-jpg", label: "PNG ↔ JPG", desc: "Transparency + background, best for photos/graphics" },
-  { key: "png-webp", label: "PNG ↔ WebP", desc: "Modern web format, smaller files" },
-  { key: "jpg-webp", label: "JPG ↔ WebP", desc: "Photo compression, quality control" },
-  { key: "any-raster", label: "Any Raster → Raster", desc: "One place for PNG/JPG/WebP/BMP/GIF/AVIF…" },
-  { key: "raster-svg", label: "PNG/JPG/WebP → SVG", desc: "Advanced vectorization (logos & illustrations)" },
-  { key: "svg-raster", label: "SVG → PNG/JPG/WebP", desc: "Crisp export at exact size" },
-  { key: "batch", label: "Batch ZIP", desc: "Convert many files and download a ZIP" },
-  { key: "finder", label: "Conversion Finder", desc: "Pick from/to and we guide you" },
-  { key: "help", label: "Help & Tips", desc: "FAQ, best settings, why results vary" }
+export const TABS: { key: TabKey; label: string; desc: string; icon: string }[] = [
+  { key: "png-jpg", label: "PNG ↔ JPG", desc: "Simple photo/graphics conversion", icon: "🖼️" },
+  { key: "png-webp", label: "PNG ↔ WebP", desc: "Smaller files for websites", icon: "🌐" },
+  { key: "jpg-webp", label: "JPG ↔ WebP", desc: "Photo compression with quality control", icon: "📷" },
+  { key: "any-raster", label: "Any Raster → Raster", desc: "Convert between many common image formats", icon: "🔄" },
+  { key: "raster-svg", label: "Raster → SVG", desc: "Turn logos and artwork into vector files", icon: "✨" },
+  { key: "svg-raster", label: "SVG → Raster", desc: "Export SVG at exact image sizes", icon: "📐" },
+  { key: "batch", label: "Batch ZIP", desc: "Convert many files and download once", icon: "📦" },
+  { key: "finder", label: "Conversion Finder", desc: "Tell us from/to and get the best path", icon: "🧭" },
+  { key: "help", label: "Help & Tips", desc: "Friendly answers and quality suggestions", icon: "💡" }
 ];
