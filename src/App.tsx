@@ -14,6 +14,7 @@ import { BatchZipTab } from "./tabs/BatchZipTab";
 import { ConversionFinderTab } from "./tabs/ConversionFinderTab";
 import { HelpTab } from "./tabs/HelpTab";
 import { UpscaleTab } from "./tabs/UpscaleTab";
+import { PdfRasterTab } from "./tabs/PdfRasterTab";
 
 export default function App() {
   const [tab, setTab] = useLocal<TabKey>("ic.tab", "png-jpg");
@@ -81,6 +82,8 @@ export default function App() {
         return <ConversionFinderTab />;
       case "upscale":
         return <UpscaleTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
+      case "pdf-raster":
+        return <PdfRasterTab />;
       case "help":
         return <HelpTab />;
       default:

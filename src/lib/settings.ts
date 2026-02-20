@@ -1,4 +1,5 @@
-export type RasterOut = "png" | "jpg" | "webp";
+import type { RasterOut } from "./rasterFormats";
+export type { RasterOut };
 export type ResizeMode = "contain" | "cover";
 export type ChromaSubsampling = "420" | "444";
 
