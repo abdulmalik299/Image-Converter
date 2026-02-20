@@ -4,6 +4,7 @@ import { Dropzone } from "../components/Dropzone";
 import { PreviewGrid, PreviewItem } from "../components/PreviewGrid";
 import { Toast, ToastState } from "../components/Toast";
 import { convertRaster } from "../lib/rasterConvert";
+import { RASTER_OUTPUTS } from "../lib/rasterFormats";
 import { downloadBlob } from "../lib/download";
 import type { CommonRasterSettings } from "../lib/settings";
 
@@ -97,14 +98,12 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
           <Card title="Output settings" subtitle="Simple controls.">
             <div className="space-y-4">
               <Field label="Output format">
-                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out:e.target.value as "png" | "jpg" | "webp" }))}>
-                  <option value="png">PNG</option>
-                  <option value="jpg">JPG</option>
-                  <option value="webp">WebP</option>
+                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out:e.target.value as any }))}>
+                  {RASTER_OUTPUTS.map((fmt)=><option key={fmt.value} value={fmt.value}>{fmt.label}</option>)}
                 </Select>
               </Field>
 
-              {(settings.out === "jpg" || settings.out === "webp") ? (
+              {(["jpg","jpeg","webp","avif","jp2"].includes(settings.out)) ? (
                 <Field label="Quality" hint={`${settings.quality}%`}>
                   <Slider min={70} max={100} value={settings.quality} onChange={(e)=>setSettings(p=>({ ...p, quality:Number(e.target.value) }))} />
                 </Field>
@@ -141,7 +140,7 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
                 ) : null}
               </div>
 
-              {settings.out === "jpg" ? (
+              {(["jpg","jpeg"].includes(settings.out)) ? (
                 <Field label="JPG background">
                   <Input value={settings.jpgBackground} onChange={(e)=>setSettings(p=>({ ...p, jpgBackground:e.target.value }))} />
                 </Field>
@@ -164,7 +163,7 @@ export function AnyRasterTab({ settings, setSettings }: { settings: CommonRaster
                   <Slider min={0} max={100} value={settings.sharpenAmount} onChange={(e)=>setSettings((p)=>({ ...p, sharpenAmount: Number(e.target.value) }))} />
                 </Field>
 
-                {(settings.out === "jpg" || settings.out === "webp") ? (
+                {(["jpg","jpeg","webp","avif","jp2"].includes(settings.out)) ? (
                   <Field label="Chroma quality">
                     <Select value={settings.chromaSubsampling} onChange={(e)=>setSettings((p)=>({ ...p, chromaSubsampling: e.target.value as "420" | "444" }))}>
                       <option value="444">4:4:4 (best color fidelity)</option>

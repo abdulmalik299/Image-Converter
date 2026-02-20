@@ -10,7 +10,8 @@ export type TabKey =
   | "batch"
   | "finder"
   | "help"
-  | "upscale";
+  | "upscale"
+  | "pdf-raster";
 
 function TabIcon({ path, accent }: { path: ReactNode; accent: string }) {
   return (
@@ -31,6 +32,7 @@ export const TABS: { key: TabKey; label: string; desc: string; icon: ReactNode }
   { key: "svg-raster", label: "SVG → Raster", desc: "Export SVG at exact image sizes", icon: <TabIcon accent="text-blue-600" path={<><path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z"/></>} /> },
   { key: "batch", label: "Batch ZIP", desc: "Convert many files and download once", icon: <TabIcon accent="text-emerald-600" path={<><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V4h6v3M12 11v5"/></>} /> },
   { key: "finder", label: "Conversion Finder", desc: "Tell us from/to and get the best path", icon: <TabIcon accent="text-amber-600" path={<><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M11 8v3l2 1"/></>} /> },
-  { key: "upscale", label: "Upscale", desc: "2x–5x image enlargement with format-aware presets", icon: <TabIcon accent="text-fuchsia-600" path={<><path d="M4 12h16"/><path d="M12 4v16"/><path d="m16 8 4-4M4 20l4-4"/></>} /> },
+  { key: "upscale", label: "Adjustments", desc: "Photo editing, HSL correction, crop and collage", icon: <TabIcon accent="text-fuchsia-600" path={<><circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/></>} /> },
+  { key: "pdf-raster", label: "PDF → Raster", desc: "Render PDF pages into image formats with DPI controls", icon: <TabIcon accent="text-lime-600" path={<><path d="M6 3h9l3 3v15H6z"/><path d="M15 3v3h3"/><path d="M9 13h6M9 17h4"/></>} /> },
   { key: "help", label: "Help & Tips", desc: "Friendly answers and quality suggestions", icon: <TabIcon accent="text-rose-600" path={<><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4"/><path d="M12 17h.01"/></>} /> }
 ];

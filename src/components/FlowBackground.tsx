@@ -24,13 +24,7 @@ export function FlowBackground() {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     let reducedMotion = media.matches;
 
-    const pointer = {
-      x: window.innerWidth * 0.5,
-      y: window.innerHeight * 0.45,
-      tx: window.innerWidth * 0.5,
-      ty: window.innerHeight * 0.45,
-      speed: 0
-    };
+    const pointer = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.45, speed: 0 };
 
     let width = 0;
     let height = 0;
@@ -67,20 +61,6 @@ export function FlowBackground() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       resetParticles();
-    };
-
-    const onMove = (event: MouseEvent) => {
-      pointer.tx = event.clientX;
-      pointer.ty = event.clientY;
-      document.documentElement.style.setProperty("--mx", `${Math.round((event.clientX / window.innerWidth) * 100)}%`);
-      document.documentElement.style.setProperty("--my", `${Math.round((event.clientY / window.innerHeight) * 100)}%`);
-    };
-
-    const onTouch = (event: TouchEvent) => {
-      const t = event.touches[0];
-      if (!t) return;
-      pointer.tx = t.clientX;
-      pointer.ty = t.clientY;
     };
 
     const onMotionPrefChange = (event: MediaQueryListEvent) => {
@@ -215,9 +195,7 @@ export function FlowBackground() {
     };
 
     const render = () => {
-      pointer.x += (pointer.tx - pointer.x) * 0.075;
-      pointer.y += (pointer.ty - pointer.y) * 0.075;
-      pointer.speed = Math.hypot(pointer.tx - pointer.x, pointer.ty - pointer.y);
+      pointer.speed = 0;
 
       ctx.clearRect(0, 0, width, height);
       drawGradientBackdrop();
@@ -232,15 +210,11 @@ export function FlowBackground() {
     render();
 
     window.addEventListener("resize", resize);
-    window.addEventListener("mousemove", onMove, { passive: true });
-    window.addEventListener("touchmove", onTouch, { passive: true });
     media.addEventListener("change", onMotionPrefChange);
 
     return () => {
       window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("touchmove", onTouch);
       media.removeEventListener("change", onMotionPrefChange);
     };
   }, []);

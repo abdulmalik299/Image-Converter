@@ -48,8 +48,9 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
                   setBusy(true);
                   const out: { name:string; blob:Blob }[] = [];
                   for(const it of items){
+                    const safeOut = ["png","jpg","webp"].includes(settings.out) ? settings.out as "png"|"jpg"|"webp" : "png";
                     const res = await svgToRaster(it.file, {
-                      out: settings.out,
+                      out: safeOut,
                       width: settings.maxWidth,
                       height: settings.maxHeight,
                       quality: settings.quality,
@@ -84,14 +85,14 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
           <Card title="Export settings" subtitle="Choose format + output size.">
             <div className="space-y-4">
               <Field label="Output format">
-                <Select value={settings.out} onChange={(e)=>setSettings(p=>({ ...p, out: e.target.value as "png" | "jpg" | "webp" }))}>
+                <Select value={["png","jpg","webp"].includes(settings.out) ? settings.out : "png"} onChange={(e)=>setSettings(p=>({ ...p, out: e.target.value as "png" | "jpg" | "webp" }))}>
                   <option value="png">PNG</option>
                   <option value="jpg">JPG</option>
                   <option value="webp">WebP</option>
                 </Select>
               </Field>
 
-              {(settings.out === "jpg" || settings.out === "webp") ? (
+              {((["jpg","webp"] as string[]).includes(settings.out)) ? (
                 <Field label="Quality" hint={`${settings.quality}%`}>
                   <Slider min={70} max={100} value={settings.quality} onChange={(e)=>setSettings(p=>({ ...p, quality:Number(e.target.value) }))} />
                 </Field>
@@ -122,7 +123,7 @@ export function SvgToRasterTab({ settings, setSettings }: { settings: CommonRast
                   </Select>
                 </Field>
 
-                {(settings.out === "jpg" || settings.out === "webp") ? (
+                {((["jpg","webp"] as string[]).includes(settings.out)) ? (
                   <Field label="Chroma quality">
                     <Select value={settings.chromaSubsampling} onChange={(e)=>setSettings((p)=>({ ...p, chromaSubsampling: e.target.value as "420" | "444" }))}>
                       <option value="444">4:4:4 (best color fidelity)</option>
