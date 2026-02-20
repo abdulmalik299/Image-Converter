@@ -235,6 +235,36 @@ function applySelectiveColor(hsl: Hsl, colorTune?: ColorTuneSettings): Hsl {
   };
 }
 
+
+function applyOutputQuality(canvas: HTMLCanvasElement, quality: number, out: RasterOut) {
+  const normalized = clamp(quality, 0, 100) / 100;
+  if (normalized >= 0.995) return canvas;
+
+  const { canvas: outCanvas, ctx } = createCanvas(canvas.width, canvas.height);
+  const sourceCtx = canvas.getContext("2d");
+  if (!sourceCtx) return canvas;
+
+  const srcData = sourceCtx.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = srcData.data;
+  const levels = out === "png"
+    ? Math.max(24, Math.round(48 + normalized * 208))
+    : Math.max(16, Math.round(24 + normalized * 232));
+  const step = 255 / (levels - 1);
+  const grainMix = (1 - normalized) * (out === "png" ? 0.045 : 0.025);
+
+  for (let i = 0; i < pixels.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const n = pixels[i + c] / step;
+      const rounded = Math.round(n) * step;
+      const dither = ((i + c) % 8 - 3.5) * grainMix;
+      pixels[i + c] = clamp(Math.round(rounded + dither), 0, 255);
+    }
+  }
+
+  ctx.putImageData(srcData, 0, 0);
+  return outCanvas;
+}
+
 function applyAiEnhance(canvas: HTMLCanvasElement, enhance?: RasterConvertOptions["enhance"]) {
   if (!enhance) return canvas;
 
@@ -356,7 +386,8 @@ export async function convertRaster(file: File, opt: RasterConvertOptions) {
 
   const enhancedCanvas = applyAiEnhance(canvas, opt.enhance);
   const sharpenTarget = clamp(opt.sharpenAmount + (opt.enhance?.detailRecovery ?? 0) * 0.35, 0, 100);
-  const finalCanvas = applySharpen(enhancedCanvas, sharpenTarget);
+  const sharpenedCanvas = applySharpen(enhancedCanvas, sharpenTarget);
+  const finalCanvas = applyOutputQuality(sharpenedCanvas, opt.quality, opt.out);
 
   const mime = opt.out === "png" ? "image/png" : opt.out === "jpg" ? "image/jpeg" : "image/webp";
   const baseQ = clamp(opt.quality / 100, 0, 1);
