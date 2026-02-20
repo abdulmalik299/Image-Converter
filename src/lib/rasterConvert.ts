@@ -1,5 +1,6 @@
 import { fileToBitmap, fitWithin } from "./imageDecode";
 import { safeBaseName } from "./format";
+import type { ColorTuneSettings } from "./settings";
 
 export type RasterOut = "png" | "jpg" | "webp";
 
@@ -17,13 +18,29 @@ export type RasterConvertOptions = {
   sharpenAmount: number;
   pngCompression: "balanced" | "quality";
   chromaSubsampling: "420" | "444";
+  resampleStrength?: number;
   enhance?: {
     autoColor: boolean;
     contrast: number;
     saturation: number;
     exposure: number;
     denoise: number;
+    detailRecovery?: number;
+    colorTune?: ColorTuneSettings;
   };
+};
+
+type Hsl = { h: number; s: number; l: number };
+
+const COLOR_CENTERS: Array<keyof ColorTuneSettings> = ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"];
+const COLOR_HUE_CENTER: Record<keyof ColorTuneSettings, number> = {
+  red: 0,
+  orange: 30,
+  yellow: 60,
+  green: 120,
+  cyan: 180,
+  blue: 240,
+  magenta: 300
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -61,10 +78,36 @@ function drawResized(bmp: ImageBitmap, opt: RasterConvertOptions) {
     const dx = (outputW - drawW) * 0.5;
     const dy = (outputH - drawH) * 0.5;
     ctx.drawImage(bmp, dx, dy, drawW, drawH);
-  } else {
-    ctx.drawImage(bmp, 0, 0, outputW, outputH);
+    return { canvas, ctx };
   }
 
+  const resampleStrength = clamp(opt.resampleStrength ?? 50, 0, 100);
+  const upscaleRatio = Math.max(outputW / bmp.width, outputH / bmp.height);
+
+  if (upscaleRatio > 1.15 && resampleStrength > 20 && opt.smoothing) {
+    const steps = Math.max(2, Math.min(5, Math.round(2 + (resampleStrength / 100) * 3)));
+    let currentCanvas: HTMLCanvasElement;
+    let currentCtx: CanvasRenderingContext2D;
+    ({ canvas: currentCanvas, ctx: currentCtx } = createCanvas(bmp.width, bmp.height));
+    currentCtx.drawImage(bmp, 0, 0);
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const w = Math.round(bmp.width + (outputW - bmp.width) * t);
+      const h = Math.round(bmp.height + (outputH - bmp.height) * t);
+      const next = createCanvas(w, h);
+      next.ctx.imageSmoothingEnabled = true;
+      next.ctx.imageSmoothingQuality = opt.smoothingQuality;
+      next.ctx.drawImage(currentCanvas, 0, 0, w, h);
+      currentCanvas = next.canvas;
+      currentCtx = next.ctx;
+    }
+
+    ctx.drawImage(currentCanvas, 0, 0, outputW, outputH);
+    return { canvas, ctx };
+  }
+
+  ctx.drawImage(bmp, 0, 0, outputW, outputH);
   return { canvas, ctx };
 }
 
@@ -117,6 +160,81 @@ function applySharpen(canvas: HTMLCanvasElement, amount: number) {
   return out;
 }
 
+function rgbToHsl(r: number, g: number, b: number): Hsl {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const delta = max - min;
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (delta > 0) {
+    s = delta / (1 - Math.abs(2 * l - 1));
+    if (max === rn) h = 60 * (((gn - bn) / delta) % 6);
+    else if (max === gn) h = 60 * ((bn - rn) / delta + 2);
+    else h = 60 * ((rn - gn) / delta + 4);
+  }
+
+  if (h < 0) h += 360;
+  return { h, s: clamp(s, 0, 1), l: clamp(l, 0, 1) };
+}
+
+function hslToRgb(h: number, s: number, l: number) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+
+  let r1 = 0;
+  let g1 = 0;
+  let b1 = 0;
+
+  if (hp >= 0 && hp < 1) [r1, g1, b1] = [c, x, 0];
+  else if (hp < 2) [r1, g1, b1] = [x, c, 0];
+  else if (hp < 3) [r1, g1, b1] = [0, c, x];
+  else if (hp < 4) [r1, g1, b1] = [0, x, c];
+  else if (hp < 5) [r1, g1, b1] = [x, 0, c];
+  else [r1, g1, b1] = [c, 0, x];
+
+  const m = l - c / 2;
+  return {
+    r: clamp(Math.round((r1 + m) * 255), 0, 255),
+    g: clamp(Math.round((g1 + m) * 255), 0, 255),
+    b: clamp(Math.round((b1 + m) * 255), 0, 255)
+  };
+}
+
+function hueDistance(a: number, b: number) {
+  const d = Math.abs(a - b);
+  return Math.min(d, 360 - d);
+}
+
+function applySelectiveColor(hsl: Hsl, colorTune?: ColorTuneSettings): Hsl {
+  if (!colorTune) return hsl;
+  let hueShift = 0;
+  let satShift = 0;
+  let lightShift = 0;
+
+  for (const band of COLOR_CENTERS) {
+    const center = COLOR_HUE_CENTER[band];
+    const dist = hueDistance(hsl.h, center);
+    const weight = clamp(1 - dist / 52, 0, 1);
+    if (weight <= 0) continue;
+    const conf = colorTune[band];
+    hueShift += conf.hue * weight;
+    satShift += conf.saturation * weight;
+    lightShift += conf.lightness * weight;
+  }
+
+  return {
+    h: (hsl.h + hueShift + 3600) % 360,
+    s: clamp(hsl.s + satShift / 100, 0, 1),
+    l: clamp(hsl.l + lightShift / 100, 0, 1)
+  };
+}
+
 function applyAiEnhance(canvas: HTMLCanvasElement, enhance?: RasterConvertOptions["enhance"]) {
   if (!enhance) return canvas;
 
@@ -124,8 +242,9 @@ function applyAiEnhance(canvas: HTMLCanvasElement, enhance?: RasterConvertOption
   const saturationStrength = clamp(enhance.saturation, 0, 100) / 100;
   const exposureStrength = clamp(enhance.exposure, -100, 100) / 100;
   const denoiseStrength = clamp(enhance.denoise, 0, 100) / 100;
+  const detailRecovery = clamp(enhance.detailRecovery ?? 0, 0, 100) / 100;
 
-  if (contrastStrength <= 0.001 && saturationStrength <= 0.001 && Math.abs(exposureStrength) <= 0.001 && denoiseStrength <= 0.001 && !enhance.autoColor) {
+  if (contrastStrength <= 0.001 && saturationStrength <= 0.001 && Math.abs(exposureStrength) <= 0.001 && denoiseStrength <= 0.001 && detailRecovery <= 0.001 && !enhance.autoColor && !enhance.colorTune) {
     return canvas;
   }
 
@@ -165,8 +284,8 @@ function applyAiEnhance(canvas: HTMLCanvasElement, enhance?: RasterConvertOption
   const wbG = enhance.autoColor ? grayAvg / avgG : 1;
   const wbB = enhance.autoColor ? grayAvg / avgB : 1;
 
-  const contrastFactor = 1 + contrastStrength * 0.45;
-  const saturationFactor = 1 + saturationStrength * 0.55;
+  const contrastFactor = 1 + contrastStrength * 0.55 + detailRecovery * 0.12;
+  const saturationFactor = 1 + saturationStrength * 0.65 + detailRecovery * 0.08;
   const exposureOffset = exposureStrength * 35;
 
   for (let i = 0; i < pixels.length; i += 4) {
@@ -183,9 +302,12 @@ function applyAiEnhance(canvas: HTMLCanvasElement, enhance?: RasterConvertOption
     g = luma + (g - luma) * saturationFactor;
     b = luma + (b - luma) * saturationFactor;
 
-    pixels[i] = clamp(Math.round(r), 0, 255);
-    pixels[i + 1] = clamp(Math.round(g), 0, 255);
-    pixels[i + 2] = clamp(Math.round(b), 0, 255);
+    const hsl = applySelectiveColor(rgbToHsl(r, g, b), enhance.colorTune);
+    const remap = hslToRgb(hsl.h, hsl.s, hsl.l);
+
+    pixels[i] = remap.r;
+    pixels[i + 1] = remap.g;
+    pixels[i + 2] = remap.b;
   }
 
   if (denoiseStrength > 0.001) {
@@ -233,7 +355,8 @@ export async function convertRaster(file: File, opt: RasterConvertOptions) {
   bmp.close?.();
 
   const enhancedCanvas = applyAiEnhance(canvas, opt.enhance);
-  const finalCanvas = applySharpen(enhancedCanvas, opt.sharpenAmount);
+  const sharpenTarget = clamp(opt.sharpenAmount + (opt.enhance?.detailRecovery ?? 0) * 0.35, 0, 100);
+  const finalCanvas = applySharpen(enhancedCanvas, sharpenTarget);
 
   const mime = opt.out === "png" ? "image/png" : opt.out === "jpg" ? "image/jpeg" : "image/webp";
   const baseQ = clamp(opt.quality / 100, 0, 1);

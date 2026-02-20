@@ -15,7 +15,9 @@ export type VectorizeSettings = {
   pathOmit: number;             // 0..50
   blurRadius: number;           // 0..5
   lineThreshold: number;        // 0..100
+  curveThreshold: number;       // 0..100
   transparentBackground: boolean;
+  enhanceCorners: boolean;
 };
 
 export const defaultVectorize: VectorizeSettings = {
@@ -24,7 +26,9 @@ export const defaultVectorize: VectorizeSettings = {
   pathOmit: 8,
   blurRadius: 0,
   lineThreshold: 15,
-  transparentBackground: true
+  curveThreshold: 15,
+  transparentBackground: true,
+  enhanceCorners: true
 };
 
 function clamp(n: number, a: number, b: number) {
@@ -34,13 +38,13 @@ function clamp(n: number, a: number, b: number) {
 function presetOptions(preset: VectorPresetKey): Record<string, any> {
   switch (preset) {
     case "logo_clean":
-      return { numberofcolors: 6, pathomit: 10, ltres: 15, qtres: 15, blurradius: 0, rightangleenhance: true };
+      return { numberofcolors: 6, pathomit: 10, ltres: 15, qtres: 12, blurradius: 0, rightangleenhance: true };
     case "logo_detailed":
-      return { numberofcolors: 12, pathomit: 5, ltres: 10, qtres: 10, blurradius: 0, rightangleenhance: true };
+      return { numberofcolors: 12, pathomit: 5, ltres: 10, qtres: 8, blurradius: 0, rightangleenhance: true };
     case "illustration":
-      return { numberofcolors: 16, pathomit: 6, ltres: 12, qtres: 12, blurradius: 1, rightangleenhance: false };
+      return { numberofcolors: 16, pathomit: 6, ltres: 12, qtres: 10, blurradius: 1, rightangleenhance: false };
     case "photo_soft":
-      return { numberofcolors: 32, pathomit: 3, ltres: 8, qtres: 8, blurradius: 2, rightangleenhance: false };
+      return { numberofcolors: 32, pathomit: 3, ltres: 8, qtres: 7, blurradius: 2, rightangleenhance: false };
     case "pixel_art":
       return { numberofcolors: 10, pathomit: 0, ltres: 25, qtres: 25, blurradius: 0, rightangleenhance: false };
     case "custom":
@@ -57,7 +61,8 @@ function mergeOptions(s: VectorizeSettings): Record<string, any> {
     pathomit: clamp(s.pathOmit, 0, 50),
     blurradius: clamp(s.blurRadius, 0, 5),
     ltres: clamp(s.lineThreshold, 0, 100),
-    qtres: clamp(s.lineThreshold, 0, 100),
+    qtres: clamp(s.curveThreshold, 0, 100),
+    rightangleenhance: s.enhanceCorners,
     background: s.transparentBackground ? "transparent" : "#ffffff"
   };
 }
