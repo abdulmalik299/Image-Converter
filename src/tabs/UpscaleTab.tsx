@@ -74,15 +74,37 @@ type LUT3D = { size: number; table: Float32Array } | null;
 type SectionKey = "basicTone"|"toneCurve"|"color"|"grading"|"detail"|"geometry"|"advanced"|"export";
 
 const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
-  { key: "basicTone", label: "Tone" },
-  { key: "toneCurve", label: "Curve" },
-  { key: "color", label: "Color" },
-  { key: "grading", label: "Grading" },
+  { key: "basicTone", label: "Basic Tone" },
+  { key: "toneCurve", label: "Tone Curve" },
+  { key: "color", label: "HSL / Color" },
+  { key: "grading", label: "Color Grading" },
   { key: "detail", label: "Detail" },
-  { key: "geometry", label: "Geometry" },
+  { key: "geometry", label: "Geometry / Crop" },
   { key: "advanced", label: "Advanced" },
   { key: "export", label: "Export" }
 ];
+
+const MOBILE_SLIDER_GROUPS: Partial<Record<SectionKey, Array<{ key: string; label: string; min: number; max: number; step?: number }>>> = {
+  basicTone: [
+    { key: "exposure", label: "Exposure", min: -5, max: 5, step: 0.1 },
+    { key: "brightness", label: "Brightness", min: -100, max: 100 },
+    { key: "contrast", label: "Contrast", min: -100, max: 100 },
+    { key: "highlights", label: "Highlights", min: -100, max: 100 },
+    { key: "shadows", label: "Shadows", min: -100, max: 100 },
+    { key: "whites", label: "Whites", min: -100, max: 100 },
+    { key: "blacks", label: "Blacks", min: -100, max: 100 }
+  ],
+  detail: [
+    { key: "sharpenAmount", label: "Sharpen", min: 0, max: 100 },
+    { key: "sharpenRadius", label: "Radius", min: 1, max: 100 },
+    { key: "sharpenThreshold", label: "Threshold", min: 0, max: 100 },
+    { key: "clarity", label: "Clarity", min: 0, max: 100 },
+    { key: "texture", label: "Texture", min: 0, max: 100 },
+    { key: "dehaze", label: "Dehaze", min: 0, max: 100 },
+    { key: "noiseLuma", label: "Noise Luma", min: 0, max: 100 },
+    { key: "noiseColor", label: "Noise Color", min: 0, max: 100 }
+  ]
+};
 
 const defaultState: EditorState = {
   basicTone: { exposure: 0, brightness: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
@@ -288,6 +310,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [holdBefore, setHoldBefore] = useState(false);
   const [showSettingsMobile, setShowSettingsMobile] = useState(false);
   const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
+  const [mobileTool, setMobileTool] = useState<SectionKey>("basicTone");
+  const [mobileSliderIndex, setMobileSliderIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => typeof document === "undefined" ? true : document.visibilityState === "visible");
   const [isInteracting, setIsInteracting] = useState(false);
@@ -319,7 +343,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const resetSection = (section: keyof EditorState) => patch((p) => ({ ...p, [section]: defaultState[section] }));
   const resetAll = () => { commit(defaultState); setLut3d(null); };
 
-  const adjustmentActive = active && isDocumentVisible;
+  const adjustmentActive = active && isDocumentVisible && (!isMobile || mobileEditorOpen);
 
   const onSliderInteractionStart = useCallback(() => {
     sliderInteractionDepthRef.current += 1;
@@ -348,6 +372,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const setSectionRef = (key: SectionKey) => (node: HTMLDivElement | null) => {
     sectionRefs.current[key] = node;
   };
+
+  const selectMobileTool = useCallback((key: SectionKey) => {
+    setMobileTool(key);
+    setMobileSliderIndex(0);
+  }, []);
 
   const closeMobileEditor = useCallback(() => {
     setMobileEditorOpen(false);
@@ -589,13 +618,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   }, [isMobile]);
 
   useEffect(() => {
-    if (isMobile && active) {
-      setMobileEditorOpen(true);
-      setShowSettingsMobile(true);
-    }
-  }, [isMobile, active]);
-
-  useEffect(() => {
     if (!isMobile || !mobileEditorOpen) return;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -688,6 +710,30 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const sheetHeightClass = sheetState === "collapsed" ? "h-[120px]" : sheetState === "full" ? "h-[90vh]" : "h-[50vh]";
 
+  const activeMobileSliderGroup = MOBILE_SLIDER_GROUPS[mobileTool] ?? null;
+  const activeMobileSliderMeta = activeMobileSliderGroup?.[mobileSliderIndex] ?? null;
+
+  const renderMobileSliderRow = () => {
+    if (!activeMobileSliderMeta) return null;
+    if (mobileTool === "basicTone") {
+      const sliderKey = activeMobileSliderMeta.key as keyof EditorState["basicTone"];
+      const value = state.basicTone[sliderKey];
+      return <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs text-slate-300"><span>{activeMobileSliderMeta.label}</span><span>{value}</span></div>
+        <Slider min={activeMobileSliderMeta.min} max={activeMobileSliderMeta.max} step={activeMobileSliderMeta.step ?? 1} value={value} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [sliderKey]: Number(e.target.value) } }))} />
+      </div>;
+    }
+    if (mobileTool === "detail") {
+      const sliderKey = activeMobileSliderMeta.key as keyof EditorState["detail"];
+      const value = state.detail[sliderKey];
+      return <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs text-slate-300"><span>{activeMobileSliderMeta.label}</span><span>{value}</span></div>
+        <Slider min={activeMobileSliderMeta.min} max={activeMobileSliderMeta.max} step={activeMobileSliderMeta.step ?? 1} value={value} onChange={(e) => patch((p) => ({ ...p, detail: { ...p.detail, [sliderKey]: Number(e.target.value) } }))} />
+      </div>;
+    }
+    return null;
+  };
+
   return <>
     <Toast state={toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />
     <div className={isMobile && mobileEditorOpen ? "fixed inset-0 z-50 bg-slate-950 text-white" : "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] gap-4 h-[calc(100vh-14rem)]"} style={isMobile && mobileEditorOpen ? { paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" } : undefined}>
@@ -713,7 +759,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             <Button variant="ghost" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}>+</Button>
             <Button variant={showBefore ? "primary" : "ghost"} onClick={() => setShowBefore((v) => !v)}>Before/After</Button>
             <Button variant="ghost" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}>Hold original</Button>
-            <Button variant="ghost" className="lg:hidden" onClick={() => (isMobile && !mobileEditorOpen) ? openMobileEditor() : setShowSettingsMobile((v) => !v)}>{isMobile && mobileEditorOpen ? (showSettingsMobile ? "Hide controls" : "Show controls") : "Open editor"}</Button>
+            {isMobile ? <Button variant="ghost" className="lg:hidden" onClick={openMobileEditor}>Open editor</Button> : null}
           </div>
           <div className={isMobile && mobileEditorOpen ? "mt-2 rounded-none border-0 bg-slate-900 p-3 h-[calc(100vh-8rem)] flex items-center justify-center relative overflow-hidden" : "mt-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-900/95 p-3 min-h-[280px] h-[min(64vh,680px)] flex items-center justify-center relative overflow-auto"}>
             {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="max-h-full max-w-full rounded-lg transition-transform" />}
@@ -726,8 +772,10 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       <div ref={sheetRef} {...sliderHandlers} className={isMobile && mobileEditorOpen ? `fixed inset-x-0 bottom-0 z-30 rounded-t-3xl border border-slate-700 bg-slate-950/95 p-3 transition-[height] duration-150 ${showSettingsMobile ? sheetHeightClass : "h-[76px]"} overflow-hidden` : `${showSettingsMobile ? "block" : "hidden"} lg:block space-y-4 lg:overflow-y-auto h-full pr-1`}>
         {isMobile && mobileEditorOpen ? <div className="mb-2">
           <div className="mx-auto h-1.5 w-12 rounded-full bg-slate-500" onPointerDown={onSheetHandlePointerDown} />
-          <div className="mt-2 flex items-center justify-between text-sm"><span>Controls</span><Button variant="ghost" onClick={resetAll}>Reset All</Button></div>
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-2">{SECTION_ITEMS.map((item) => <button key={item.key} className="whitespace-nowrap rounded-full border border-slate-600 px-3 py-1 text-xs" onClick={() => scrollToSection(item.key)}>{item.label}</button>)}</div>
+          <div className="mt-2 flex items-center justify-between text-sm"><span>Controls</span><Button variant="ghost" onClick={() => setShowSettingsMobile((v) => !v)}>{showSettingsMobile ? "Collapse" : "Expand"}</Button></div>
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-2">{SECTION_ITEMS.map((item) => <button key={item.key} aria-label={item.label} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition ${mobileTool === item.key ? "border-sky-400 bg-sky-500/20 text-sky-200 opacity-100 shadow-[0_0_0_1px_rgba(56,189,248,.35)]" : "border-slate-700 text-slate-300 opacity-45"}`} onClick={() => selectMobileTool(item.key)}><SectionIcon kind={item.key} /></button>)}</div>
+          {activeMobileSliderGroup ? <div className="mb-2 flex gap-2 overflow-x-auto pb-2">{activeMobileSliderGroup.map((slider, idx) => <button key={slider.key} className={`rounded-full px-2.5 py-1 text-[11px] ${mobileSliderIndex === idx ? "bg-slate-700 text-white" : "bg-slate-800/70 text-slate-300"}`} onClick={() => setMobileSliderIndex(idx)}>{slider.label}</button>)}</div> : null}
+          {showSettingsMobile ? <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-2">{renderMobileSliderRow()}</div> : null}
         </div> : null}
         <div className={isMobile && mobileEditorOpen ? "h-[calc(100%-72px)] overflow-y-auto space-y-4 pr-1" : "space-y-4"}>
         <Card title="Workflow" right={<Button variant="ghost" onClick={resetAll}>Reset All</Button>}>
@@ -738,11 +786,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           <Field label="Histogram"><canvas ref={histCanvasRef} className="w-full rounded-lg border border-slate-700" /></Field>
         </Card>
 
-        <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
           {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={String(v)}><Slider min={k === "exposure" ? -5 : -100} max={k === "exposure" ? 5 : 100} step={k === "exposure" ? 0.1 : 1} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("toneCurve")}><Collapsible icon={<SectionIcon kind="toneCurve" />} title="Tone Curve" right={<Button variant="ghost" onClick={() => resetSection("toneCurve")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "toneCurve") ? <div ref={setSectionRef("toneCurve")}><Collapsible icon={<SectionIcon kind="toneCurve" />} title="Tone Curve" right={<Button variant="ghost" onClick={() => resetSection("toneCurve")}>Reset</Button>}>
           <Field label="Channel"><Select value={curveChannel} onChange={(e) => setCurveChannel(e.target.value as CurveChannel)}><option value="rgb">RGB</option><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></Select></Field>
           <canvas ref={curveCanvasRef} className="w-full rounded-lg mt-2 cursor-crosshair" onMouseDown={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -771,30 +819,30 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
               return { ...p, toneCurve: { ...p.toneCurve, [curveChannel]: next.sort((a, b) => a.x - b.x) } };
             });
           }} onMouseUp={() => { dragPointRef.current = null; }} />
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("color")}><Collapsible icon={<SectionIcon kind="color" />} title="Color" right={<Button variant="ghost" onClick={() => resetSection("color")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "color") ? <div ref={setSectionRef("color")}><Collapsible icon={<SectionIcon kind="color" />} title="Color" right={<Button variant="ghost" onClick={() => resetSection("color")}>Reset</Button>}>
           {(["temperature", "tint", "vibrance", "saturation"] as const).map((k) => <Field key={k} label={k} hint={String(state.color[k])}><Slider min={-100} max={100} value={state.color[k]} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, [k]: Number(e.target.value) } }))} /></Field>)}
           {HSL_RANGES.map((range) => <div className="grid grid-cols-3 gap-2" key={range}>
             <Field label={`${range} H`} hint={String(state.color.hsl[range].hue)}><Slider min={-100} max={100} value={state.color.hsl[range].hue} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], hue: Number(e.target.value) } } } }))} /></Field>
             <Field label="S" hint={String(state.color.hsl[range].sat)}><Slider min={-100} max={100} value={state.color.hsl[range].sat} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], sat: Number(e.target.value) } } } }))} /></Field>
             <Field label="L" hint={String(state.color.hsl[range].lum)}><Slider min={-100} max={100} value={state.color.hsl[range].lum} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], lum: Number(e.target.value) } } } }))} /></Field>
           </div>)}
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("grading")}><Collapsible icon={<SectionIcon kind="grading" />} title="Color Grading" right={<Button variant="ghost" onClick={() => resetSection("grading")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "grading") ? <div ref={setSectionRef("grading")}><Collapsible icon={<SectionIcon kind="grading" />} title="Color Grading" right={<Button variant="ghost" onClick={() => resetSection("grading")}>Reset</Button>}>
           {(["shadows", "midtones", "highlights"] as const).map((tone) => <div className="grid grid-cols-3 gap-2" key={tone}>
             <Field label={`${tone} hue`} hint={String(state.grading[tone].hue)}><Slider min={0} max={360} value={state.grading[tone].hue} onChange={(e) => patch((p) => ({ ...p, grading: { ...p.grading, [tone]: { ...p.grading[tone], hue: Number(e.target.value) } } }))} /></Field>
             <Field label="sat" hint={String(state.grading[tone].sat)}><Slider min={0} max={100} value={state.grading[tone].sat} onChange={(e) => patch((p) => ({ ...p, grading: { ...p.grading, [tone]: { ...p.grading[tone], sat: Number(e.target.value) } } }))} /></Field>
             <Field label="lum" hint={String(state.grading[tone].lum)}><Slider min={-100} max={100} value={state.grading[tone].lum} onChange={(e) => patch((p) => ({ ...p, grading: { ...p.grading, [tone]: { ...p.grading[tone], lum: Number(e.target.value) } } }))} /></Field>
           </div>)}
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("detail")}><Collapsible icon={<SectionIcon kind="detail" />} title="Detail" right={<Button variant="ghost" onClick={() => resetSection("detail")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "detail") ? <div ref={setSectionRef("detail")}><Collapsible icon={<SectionIcon kind="detail" />} title="Detail" right={<Button variant="ghost" onClick={() => resetSection("detail")}>Reset</Button>}>
           {Object.entries(state.detail).map(([k, v]) => <Field key={k} label={k} hint={String(v)}><Slider min={k === "sharpenRadius" ? 1 : 0} max={100} value={v} onChange={(e) => patch((p) => ({ ...p, detail: { ...p.detail, [k]: Number(e.target.value) } }))} /></Field>)}
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("geometry")}><Collapsible icon={<SectionIcon kind="geometry" />} title="Geometry" right={<Button variant="ghost" onClick={() => resetSection("geometry")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "geometry") ? <div ref={setSectionRef("geometry")}><Collapsible icon={<SectionIcon kind="geometry" />} title="Geometry" right={<Button variant="ghost" onClick={() => resetSection("geometry")}>Reset</Button>}>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Crop X"><Slider min={0} max={90} value={state.geometry.cropX} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropX: Number(e.target.value) } }))} /></Field>
             <Field label="Crop Y"><Slider min={0} max={90} value={state.geometry.cropY} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropY: Number(e.target.value) } }))} /></Field>
@@ -809,9 +857,9 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           <Field label="Lens distortion" hint={String(state.geometry.lensDistortion)}><Slider min={-100} max={100} value={state.geometry.lensDistortion} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, lensDistortion: Number(e.target.value) } }))} /></Field>
           <Field label="Vignette" hint={String(state.geometry.vignette)}><Slider min={0} max={100} value={state.geometry.vignette} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, vignette: Number(e.target.value) } }))} /></Field>
           <Field label="Smoothing"><Select value={state.geometry.smoothingQuality} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, smoothingQuality: e.target.value as "low" | "medium" | "high" } }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></Field>
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("advanced")}><Collapsible icon={<SectionIcon kind="advanced" />} title="Advanced" right={<Button variant="ghost" onClick={() => resetSection("advanced")}>Reset</Button>}>
+        {(!isMobile || !mobileEditorOpen || mobileTool === "advanced") ? <div ref={setSectionRef("advanced")}><Collapsible icon={<SectionIcon kind="advanced" />} title="Advanced" right={<Button variant="ghost" onClick={() => resetSection("advanced")}>Reset</Button>}>
           <Field label="Gamma" hint={state.advanced.gamma.toFixed(2)}><Slider min={0.2} max={3} step={0.01} value={state.advanced.gamma} onChange={(e) => patch((p) => ({ ...p, advanced: { ...p.advanced, gamma: Number(e.target.value) } }))} /></Field>
           {(["r", "g", "b"] as const).map((row) => <div key={row} className="grid grid-cols-3 gap-2">{(["r", "g", "b"] as const).map((col) => <Field key={`${row}${col}`} label={`${row.toUpperCase()}←${col.toUpperCase()}`}><Slider min={-200} max={200} value={state.advanced.channelMixer[row][col]} onChange={(e) => patch((p) => ({ ...p, advanced: { ...p.advanced, channelMixer: { ...p.advanced.channelMixer, [row]: { ...p.advanced.channelMixer[row], [col]: Number(e.target.value) } } } }))} /></Field>)}</div>)}
           <div className="flex gap-2 my-2"><Button variant="ghost" onClick={() => patch((p) => ({ ...p, advanced: { ...p.advanced, labMode: !p.advanced.labMode } }))}>{state.advanced.labMode ? "LAB On" : "LAB Off"}</Button><Button variant="ghost" onClick={() => patch((p) => ({ ...p, advanced: { ...p.advanced, edgePreview: !p.advanced.edgePreview } }))}>{state.advanced.edgePreview ? "Edge On" : "Edge Off"}</Button></div>
@@ -823,9 +871,9 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             if (!lut) setToast({ open: true, message: "Invalid LUT file", type: "error" });
             else setLut3d(lut);
           }} /></Field>
-        </Collapsible></div>
+        </Collapsible></div> : null}
 
-        <div ref={setSectionRef("export")}><Collapsible icon={<SectionIcon kind="export" />} title="Export Settings">
+        {(!isMobile || !mobileEditorOpen || mobileTool === "export") ? <div ref={setSectionRef("export")}><Collapsible icon={<SectionIcon kind="export" />} title="Export Settings">
           <Field label="Format"><Select value={state.export.format} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, format: e.target.value as EditorState["export"]["format"] } }))}><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WebP</option><option value="avif">AVIF</option></Select></Field>
           <Field label="Quality" hint={String(state.export.quality)}><Slider min={1} max={100} value={state.export.quality} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, quality: Number(e.target.value) } }))} /></Field>
           <Field label="Bit depth"><Select value={state.export.bitDepth}><option value="8-bit">8-bit</option></Select></Field>
@@ -848,7 +896,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             setSettings((p) => ({ ...p, quality: state.export.quality, out: state.export.format === "jpg" ? "jpeg" : state.export.format as any }));
           }}>Export</Button>
         </Collapsible>
-        </div>
+        </div> : null}
       </div>
     </div>
     </div>
