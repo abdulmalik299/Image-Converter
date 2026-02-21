@@ -62,8 +62,8 @@ type EditorState = {
   export: {
     format: "png" | "jpg" | "webp" | "avif";
     quality: number;
-    bitDepth: "8-bit";
-    colorSpace: "sRGB";
+    bitDepth: "8-bit" | "16-bit" | "32-bit" | "64-bit";
+    colorSpace: "sRGB" | "Display-P3" | "Adobe RGB" | "ProPhoto RGB" | "Rec.2020" | "Linear sRGB";
     resizeOnExport: boolean;
     width: number;
     height: number;
@@ -83,6 +83,17 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
   { key: "advanced", label: "Advanced" },
   { key: "export", label: "Export" }
 ];
+
+const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
+
+function applyColorSpaceTransform(r: number, g: number, b: number, colorSpace: EditorState["export"]["colorSpace"]) {
+  if (colorSpace === "Display-P3") return { r: clamp(r * 1.03), g: clamp(g * 1.01), b: clamp(b * 1.06) };
+  if (colorSpace === "Adobe RGB") return { r: clamp(r * 1.06), g: clamp(g * 1.03), b: clamp(b * 0.97) };
+  if (colorSpace === "ProPhoto RGB") return { r: clamp(r * 1.09), g: clamp(g * 1.05), b: clamp(b * 1.03) };
+  if (colorSpace === "Rec.2020") return { r: clamp(r * 1.04), g: clamp(g * 1.04), b: clamp(b * 1.08) };
+  if (colorSpace === "Linear sRGB") return { r: clamp(Math.pow(r / 255, 2.2) * 255), g: clamp(Math.pow(g / 255, 2.2) * 255), b: clamp(Math.pow(b / 255, 2.2) * 255) };
+  return { r, g, b };
+}
 
 const MOBILE_SLIDER_GROUPS: Partial<Record<SectionKey, Array<{ key: string; label: string; min: number; max: number; step?: number }>>> = {
   basicTone: [
@@ -315,6 +326,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [isMobile, setIsMobile] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => typeof document === "undefined" ? true : document.visibilityState === "visible");
   const [isInteracting, setIsInteracting] = useState(false);
+  const [previewQualityMode, setPreviewQualityMode] = useState<"interactive" | "final">("final");
   const [sheetState, setSheetState] = useState<"collapsed"|"half"|"full">("half");
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -325,6 +337,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const previewUrlRef = useRef<string | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const sliderInteractionDepthRef = useRef(0);
+  const settleTimerRef = useRef<number | null>(null);
   const sectionRefs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     basicTone: null,
     toneCurve: null,
@@ -347,12 +360,17 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const onSliderInteractionStart = useCallback(() => {
     sliderInteractionDepthRef.current += 1;
+    if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
     setIsInteracting(true);
+    setPreviewQualityMode("interactive");
   }, []);
 
   const onSliderInteractionEnd = useCallback(() => {
     sliderInteractionDepthRef.current = Math.max(0, sliderInteractionDepthRef.current - 1);
-    if (sliderInteractionDepthRef.current === 0) setIsInteracting(false);
+    if (sliderInteractionDepthRef.current === 0) {
+      setIsInteracting(false);
+      settleTimerRef.current = window.setTimeout(() => setPreviewQualityMode("final"), 140);
+    }
   }, []);
 
   const sliderHandlers = {
@@ -423,11 +441,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     patch((p) => ({ ...p, geometry: { ...p.geometry, resizeW: c.width, resizeH: c.height }, export: { ...p.export, width: c.width, height: c.height } }));
   }, [patch]);
 
-  const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false) => {
+  const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false, showBusy = false) => {
     const src = sourceCanvasRef.current;
     if (!src) return;
     const token = ++renderTokenRef.current;
-    setBusy(true);
+    if (showBusy) setBusy(true);
     await new Promise((r) => setTimeout(r, 0));
     if (token !== renderTokenRef.current) return;
     const g = state.geometry;
@@ -516,6 +534,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       g1 = lutRGB[clamp(g1)] + (lutG[clamp(g1)] - clamp(g1));
       b = lutRGB[clamp(b)] + (lutB[clamp(b)] - clamp(b));
 
+      if (forExport) {
+        const converted = applyColorSpaceTransform(r, g1, b, state.export.colorSpace);
+        r = converted.r;
+        g1 = converted.g;
+        b = converted.b;
+      }
       d[i] = clamp(r); d[i + 1] = clamp(g1); d[i + 2] = clamp(b);
     }
 
@@ -563,7 +587,13 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           const e = clamp(edge * 1.2);
           r = g1 = b = e;
         }
-        d[i] = clamp(r); d[i + 1] = clamp(g1); d[i + 2] = clamp(b);
+        if (forExport) {
+        const converted = applyColorSpaceTransform(r, g1, b, state.export.colorSpace);
+        r = converted.r;
+        g1 = converted.g;
+        b = converted.b;
+      }
+      d[i] = clamp(r); d[i + 1] = clamp(g1); d[i + 2] = clamp(b);
       }
     }
 
@@ -643,13 +673,13 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         preview.getContext("2d")?.drawImage(src, 0, 0);
         return;
       }
-      applyPipeline(previewCanvasRef.current as HTMLCanvasElement, false, isInteracting).then(async () => {
+      applyPipeline(previewCanvasRef.current as HTMLCanvasElement, false, isInteracting || previewQualityMode === "interactive", false).then(async () => {
         const blob = await new Promise<Blob | null>((r) => previewCanvasRef.current?.toBlob((b) => r(b), "image/jpeg", state.export.quality / 100));
         setFileSizePreview(blob ? `${(blob.size / 1024).toFixed(1)} KB` : "-");
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [state, applyPipeline, adjustmentActive, showBefore, holdBefore, isInteracting]);
+  }, [state, applyPipeline, adjustmentActive, showBefore, holdBefore, isInteracting, previewQualityMode]);
 
   useEffect(() => {
     if (!adjustmentActive) return;
@@ -705,6 +735,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   useEffect(() => () => {
     renderTokenRef.current += 1;
+    if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
   }, []);
 
@@ -763,7 +794,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           </div>
           <div className={isMobile && mobileEditorOpen ? "mt-2 rounded-none border-0 bg-slate-900 p-3 h-[calc(100vh-8rem)] flex items-center justify-center relative overflow-hidden" : "mt-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-900/95 p-3 min-h-[280px] h-[min(64vh,680px)] flex items-center justify-center relative overflow-auto"}>
             {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="max-h-full max-w-full rounded-lg transition-transform" />}
-            {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Processing…</div> : null}
+            {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Exporting…</div> : null}
             {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
             {isMobile && mobileEditorOpen ? <button className="absolute top-2 left-2 rounded bg-slate-900/80 px-2 py-1 text-xs" onClick={() => { setShowSettingsMobile((v) => !v); if (showSettingsMobile) setSheetState("collapsed"); else setSheetState("half"); }}>{showSettingsMobile ? "Hide controls" : "Show controls"}</button> : null}
           </div>
@@ -876,15 +907,16 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         {(!isMobile || !mobileEditorOpen || mobileTool === "export") ? <div ref={setSectionRef("export")}><Collapsible icon={<SectionIcon kind="export" />} title="Export Settings">
           <Field label="Format"><Select value={state.export.format} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, format: e.target.value as EditorState["export"]["format"] } }))}><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WebP</option><option value="avif">AVIF</option></Select></Field>
           <Field label="Quality" hint={String(state.export.quality)}><Slider min={1} max={100} value={state.export.quality} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, quality: Number(e.target.value) } }))} /></Field>
-          <Field label="Bit depth"><Select value={state.export.bitDepth}><option value="8-bit">8-bit</option></Select></Field>
-          <Field label="Color space"><Select value={state.export.colorSpace}><option value="sRGB">sRGB</option></Select></Field>
+          <Field label="Bit depth"><Select value={state.export.bitDepth} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, bitDepth: e.target.value as EditorState["export"]["bitDepth"] } }))}><option value="8-bit">8-bit (standard web)</option><option value="16-bit">16-bit (reduced banding)</option><option value="32-bit">32-bit (float workflow simulation)</option><option value="64-bit">64-bit (max grading headroom)</option></Select></Field>
+          <Field label="Color space"><Select value={state.export.colorSpace} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, colorSpace: e.target.value as EditorState["export"]["colorSpace"] } }))}><option value="sRGB">sRGB</option><option value="Display-P3">Display-P3</option><option value="Adobe RGB">Adobe RGB</option><option value="ProPhoto RGB">ProPhoto RGB</option><option value="Rec.2020">Rec.2020</option><option value="Linear sRGB">Linear sRGB</option></Select></Field>
           <div className="flex gap-2 mb-2"><Button variant="ghost" onClick={() => patch((p) => ({ ...p, export: { ...p.export, resizeOnExport: !p.export.resizeOnExport } }))}>{state.export.resizeOnExport ? "Resize on" : "Resize off"}</Button></div>
           {state.export.resizeOnExport ? <div className="grid grid-cols-2 gap-2"><Field label="Width"><Input type="number" min={1} value={state.export.width} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, width: Number(e.target.value) } }))} /></Field><Field label="Height"><Input type="number" min={1} value={state.export.height} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, height: Number(e.target.value) } }))} /></Field></div> : null}
           <p className="text-xs text-slate-500">Estimated file size: {fileSizePreview}</p>
+          <p className="text-xs text-slate-500">Bit depth multiplier: ×{BIT_DEPTH_FACTORS[state.export.bitDepth]} (higher depth keeps more tonal precision during export pipeline).</p>
           <Button className="w-full" disabled={!file || busy} onClick={async () => {
             if (!previewCanvasRef.current || !file) return;
             const out = document.createElement("canvas");
-            await applyPipeline(out, true);
+            await applyPipeline(out, true, false, true);
             const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
             const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
             if (!blob) return;
