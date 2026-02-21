@@ -7,7 +7,7 @@ import { humanBytes } from "../lib/format";
 
 declare global { interface Window { pdfjsLib?: any } }
 
-const DPI_CHOICES = [150, 300, 600];
+const DPI_CHOICES = [150, 300, 600, 1200];
 const PDF_CDN = [
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
   "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"
@@ -18,6 +18,7 @@ const PDF_WORKER_CDN = [
 ] as const;
 
 type PageMode = "current" | "range" | "all";
+const clamp = (v: number, min = 0, max = 255) => Math.max(min, Math.min(max, v));
 function encodeCanvas(outCanvas: HTMLCanvasElement, out: RasterOut, quality: number) {
   const mime = out === "jpg" || out === "jpeg" ? "image/jpeg" : out === "webp" ? "image/webp" : "image/png";
   return new Promise<{ blob: Blob; mime: string }>((resolve, reject) => {
@@ -74,9 +75,9 @@ function parseRange(input: string, max: number) {
   return out.size ? [...out].sort((a, b) => a - b) : [1];
 }
 
-async function renderPdfPage(pdf: any, pageNumber: number, options: { finalDpi: number; superSharp: boolean; transparent: boolean; out: RasterOut; renderMode: string; quality: number }) {
+async function renderPdfPage(pdf: any, pageNumber: number, options: { finalDpi: number; superSharp: boolean; transparent: boolean; out: RasterOut; renderMode: string; quality: number; oversample: number; postSharpen: number; autoContrast: boolean; grayscale: boolean; background: string }) {
   const page = await pdf.getPage(pageNumber);
-  const scale = (options.finalDpi / 72) * (options.superSharp ? 2 : 1);
+  const scale = (options.finalDpi / 72) * options.oversample * (options.superSharp ? 2 : 1);
   const vp = page.getViewport({ scale });
   const c = document.createElement("canvas");
   c.width = Math.ceil(vp.width);
@@ -85,28 +86,74 @@ async function renderPdfPage(pdf: any, pageNumber: number, options: { finalDpi: 
   if (!ctx) throw new Error("Canvas unavailable");
 
   if (!(options.transparent && options.out === "png")) {
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = options.background || "#fff";
     ctx.fillRect(0, 0, c.width, c.height);
   }
   ctx.imageSmoothingEnabled = options.renderMode !== "text";
   ctx.imageSmoothingQuality = options.renderMode === "print" ? "high" : "medium";
   await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
+  const img = ctx.getImageData(0, 0, c.width, c.height);
   if (options.renderMode === "contrast") {
-    const img = ctx.getImageData(0, 0, c.width, c.height);
     for (let i = 0; i < img.data.length; i += 4) {
       img.data[i] = Math.min(255, img.data[i] * 1.1);
       img.data[i + 1] = Math.min(255, img.data[i + 1] * 1.1);
       img.data[i + 2] = Math.min(255, img.data[i + 2] * 1.1);
     }
-    ctx.putImageData(img, 0, 0);
   }
+
+  if (options.autoContrast || options.grayscale || options.postSharpen > 0) {
+    let minL = 255;
+    let maxL = 0;
+    if (options.autoContrast) {
+      for (let i = 0; i < img.data.length; i += 4) {
+        const lum = 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2];
+        minL = Math.min(minL, lum);
+        maxL = Math.max(maxL, lum);
+      }
+    }
+    const stretch = maxL > minL ? 255 / (maxL - minL) : 1;
+    for (let i = 0; i < img.data.length; i += 4) {
+      let r = img.data[i];
+      let g = img.data[i + 1];
+      let b = img.data[i + 2];
+      if (options.autoContrast) {
+        r = clamp((r - minL) * stretch);
+        g = clamp((g - minL) * stretch);
+        b = clamp((b - minL) * stretch);
+      }
+      if (options.grayscale) {
+        const y = clamp(0.2126 * r + 0.7152 * g + 0.0722 * b);
+        r = y; g = y; b = y;
+      }
+      img.data[i] = r;
+      img.data[i + 1] = g;
+      img.data[i + 2] = b;
+    }
+    if (options.postSharpen > 0) {
+      const amount = options.postSharpen / 100;
+      const copy = new Uint8ClampedArray(img.data);
+      const w = c.width;
+      const h = c.height;
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const i = (y * w + x) * 4;
+          for (let ch = 0; ch < 3; ch++) {
+            const center = copy[i + ch] * 5;
+            const blur = copy[i + ch - 4] + copy[i + ch + 4] + copy[i + ch - w * 4] + copy[i + ch + w * 4];
+            img.data[i + ch] = clamp(copy[i + ch] + (center - blur) * 0.25 * amount);
+          }
+        }
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 
   let outCanvas = c;
   if (options.superSharp) {
     const d = document.createElement("canvas");
-    d.width = Math.round(c.width / 2);
-    d.height = Math.round(c.height / 2);
+    d.width = Math.max(1, Math.round(c.width / (2 * options.oversample)));
+    d.height = Math.max(1, Math.round(c.height / (2 * options.oversample)));
     const dctx = d.getContext("2d");
     if (!dctx) throw new Error("Canvas unavailable");
     dctx.imageSmoothingEnabled = true;
@@ -117,7 +164,7 @@ async function renderPdfPage(pdf: any, pageNumber: number, options: { finalDpi: 
 
   const text = await page.getTextContent();
   const encoded = await encodeCanvas(outCanvas, options.out, options.quality);
-  return { ...encoded, pageType: text.items?.length > 0 ? "Vector / selectable text" : "Scanned / image PDF" };
+  return { ...encoded, pageType: text.items?.length > 0 ? "Vector / selectable text" : "Scanned / image PDF", width: outCanvas.width, height: outCanvas.height };
 }
 
 export function PdfRasterTab() {
@@ -138,6 +185,11 @@ export function PdfRasterTab() {
   const [currentPage, setCurrentPage] = useState(1);
   const [renderMode, setRenderMode] = useState("normal");
   const [superSharp, setSuperSharp] = useState(false);
+  const [oversample, setOversample] = useState(1.5);
+  const [postSharpen, setPostSharpen] = useState(20);
+  const [autoContrast, setAutoContrast] = useState(false);
+  const [grayscale, setGrayscale] = useState(false);
+  const [background, setBackground] = useState("#ffffff");
 
   const [pages, setPages] = useState(0);
   const [preview, setPreview] = useState<string>("");
@@ -166,7 +218,7 @@ export function PdfRasterTab() {
     const id = window.setTimeout(async () => {
       try {
         const page = Math.max(1, Math.min(pages || 1, currentPage));
-        const result = await renderPdfPage(pdfRef.current, page, { finalDpi, superSharp, transparent, out, renderMode, quality });
+        const result = await renderPdfPage(pdfRef.current, page, { finalDpi, superSharp, transparent, out, renderMode, quality, oversample, postSharpen, autoContrast, grayscale, background });
         if (token !== previewTokenRef.current) return;
         if (preview) URL.revokeObjectURL(preview);
         setPreview(URL.createObjectURL(result.blob));
@@ -181,7 +233,7 @@ export function PdfRasterTab() {
       }
     }, 180);
     return () => window.clearTimeout(id);
-  }, [pages, currentPage, finalDpi, superSharp, transparent, out, renderMode, quality, pageMode, pageRange]);
+  }, [pages, currentPage, finalDpi, superSharp, transparent, out, renderMode, quality, pageMode, pageRange, oversample, postSharpen, autoContrast, grayscale, background]);
 
   return <Card title="PDF → Raster" subtitle="Convert PDF pages to high-quality images with full rendering controls.">
     <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/55">
@@ -224,14 +276,19 @@ export function PdfRasterTab() {
       <Field label="Page selection"><Select value={pageMode} onChange={(e) => setPageMode(e.target.value as PageMode)}><option value="current">Current page</option><option value="range">Page range</option><option value="all">All pages (ZIP)</option></Select></Field>
       {pageMode === "current" ? <Field label="Current page"><Input value={currentPage} type="number" min={1} max={pages || undefined} onChange={(e) => setCurrentPage(Number(e.target.value) || 1)} /></Field> : null}
       {pageMode === "range" ? <Field label="Page range"><Input value={pageRange} onChange={(e) => setPageRange(e.target.value)} placeholder="1-5,8,10-12" /></Field> : null}
-      <Field label="Render mode"><Select value={renderMode} onChange={(e) => setRenderMode(e.target.value)}><option value="normal">Normal rendering</option><option value="print">Print-quality rendering</option><option value="text">Text-sharp mode</option><option value="contrast">High-contrast mode</option></Select></Field>
+            <Field label="Render mode"><Select value={renderMode} onChange={(e) => setRenderMode(e.target.value)}><option value="normal">Normal rendering</option><option value="print">Print-quality rendering</option><option value="text">Text-sharp mode</option><option value="contrast">High-contrast mode</option></Select></Field>
+      <Field label="Oversampling" hint={`${oversample.toFixed(1)}x`}><Slider min={1} max={3} step={0.1} value={oversample} onChange={(e) => setOversample(Number(e.target.value))} /></Field>
+      <Field label="Post sharpen" hint={`${postSharpen}%`}><Slider min={0} max={100} value={postSharpen} onChange={(e) => setPostSharpen(Number(e.target.value))} /></Field>
+      <Field label="Auto contrast"><input type="checkbox" checked={autoContrast} onChange={(e) => setAutoContrast(e.target.checked)} /> Stretch tonal range for clearer scans</Field>
+      <Field label="Grayscale"><input type="checkbox" checked={grayscale} onChange={(e) => setGrayscale(e.target.checked)} /> Useful for text-heavy or monochrome exports</Field>
+      <Field label="Background color"><Input value={background} onChange={(e) => setBackground(e.target.value)} placeholder="#ffffff" /></Field>
       <Field label="Super-sharp"><input type="checkbox" checked={superSharp} onChange={(e) => setSuperSharp(e.target.checked)} /> Render higher then downscale</Field>
     </div>
 
     <div className="mt-3 text-xs text-slate-600 dark:text-slate-300">Live pre-export preview updates automatically with your current settings.</div>
     {warning ? <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">⚠️ {warning}</div> : null}
     {error ? <div className="mt-2 text-sm text-rose-700 dark:text-rose-300">{error}</div> : null}
-    <div className="mt-2 text-sm text-slate-700 dark:text-slate-200">Detected PDF type: <b>{pdfType}</b> · Pages: <b>{pages || "-"}</b> · Estimated output size: <b>{estimated ? humanBytes(estimated) : "-"}</b></div>
+    <div className="mt-2 text-sm text-slate-700 dark:text-slate-200">Detected PDF type: <b>{pdfType}</b> · Pages: <b>{pages || "-"}</b> · Estimated output size: <b>{estimated ? humanBytes(estimated) : "-"}</b> · Effective DPI: <b>{finalDpi}</b></div>
     {preview ? <div className="mt-3 space-y-2"><img src={preview} className="max-h-[420px] w-full rounded-xl border border-slate-200 object-contain dark:border-slate-700" /><div className="text-xs text-slate-500 dark:text-slate-300">Pre-export preview (page {Math.max(1, Math.min(pages || 1, currentPage))}) {previewBusy ? "• updating…" : ""}</div></div> : null}
 
     <div className="mt-4 flex gap-2">
@@ -261,7 +318,7 @@ export function PdfRasterTab() {
             let totalEstimated = 0;
 
             for (const p of selected) {
-              const rendered = await renderPdfPage(pdf, p, { finalDpi, superSharp, transparent, out, renderMode, quality });
+              const rendered = await renderPdfPage(pdf, p, { finalDpi, superSharp, transparent, out, renderMode, quality, oversample, postSharpen, autoContrast, grayscale, background });
               totalEstimated += rendered.blob.size;
               setEstimated(totalEstimated);
               if (p === selected[0]) {
