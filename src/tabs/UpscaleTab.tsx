@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
 import { Button, Card, Field, Input, Select, Slider } from "../components/ui";
 import { Dropzone } from "../components/Dropzone";
 import { Toast, type ToastState } from "../components/Toast";
@@ -85,6 +85,7 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
 ];
 
 const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
+const PREVIEW_MAX_DIMENSION = 2048;
 
 function applyColorSpaceTransform(r: number, g: number, b: number, colorSpace: EditorState["export"]["colorSpace"]) {
   if (colorSpace === "Display-P3") return { r: clamp(r * 1.03), g: clamp(g * 1.01), b: clamp(b * 1.06) };
@@ -332,6 +333,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [previewQualityMode, setPreviewQualityMode] = useState<"interactive" | "final">("final");
   const [sheetState, setSheetState] = useState<"collapsed"|"half"|"full">("half");
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const histCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -364,12 +366,18 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const adjustmentActive = active && isDocumentVisible && (!isMobile || mobileEditorOpen);
 
-  const onSliderInteractionStart = useCallback(() => {
+  const isAdjustmentInteractionTarget = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(target.closest('input[type="range"], canvas[data-adjustment-control="true"]'));
+  }, []);
+
+  const onSliderInteractionStart = useCallback((event?: SyntheticEvent) => {
+    if (event && !isAdjustmentInteractionTarget(event.target)) return;
     sliderInteractionDepthRef.current += 1;
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
     setIsInteracting(true);
     setPreviewQualityMode("interactive");
-  }, []);
+  }, [isAdjustmentInteractionTarget]);
 
   const onSliderInteractionEnd = useCallback(() => {
     sliderInteractionDepthRef.current = Math.max(0, sliderInteractionDepthRef.current - 1);
@@ -439,17 +447,37 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const loadImage = useCallback(async (f: File) => {
     const bmp = await createImageBitmap(f);
-    const c = sourceCanvasRef.current || document.createElement("canvas");
-    c.width = bmp.width; c.height = bmp.height;
-    c.getContext("2d")?.drawImage(bmp, 0, 0);
-    sourceCanvasRef.current = c;
+    const originalCanvas = sourceCanvasRef.current || document.createElement("canvas");
+    originalCanvas.width = bmp.width;
+    originalCanvas.height = bmp.height;
+    originalCanvas.getContext("2d")?.drawImage(bmp, 0, 0);
+    sourceCanvasRef.current = originalCanvas;
+
+    const previewScale = Math.min(1, PREVIEW_MAX_DIMENSION / Math.max(bmp.width, bmp.height));
+    const previewCanvas = previewSourceCanvasRef.current || document.createElement("canvas");
+    previewCanvas.width = Math.max(1, Math.round(bmp.width * previewScale));
+    previewCanvas.height = Math.max(1, Math.round(bmp.height * previewScale));
+    const previewCtx = previewCanvas.getContext("2d");
+    if (previewCtx) {
+      previewCtx.imageSmoothingEnabled = true;
+      previewCtx.imageSmoothingQuality = "high";
+      previewCtx.drawImage(bmp, 0, 0, previewCanvas.width, previewCanvas.height);
+      previewSourceCanvasRef.current = previewCanvas;
+    }
+
     bmp.close();
-    patch((p) => ({ ...p, geometry: { ...p.geometry, resizeW: c.width, resizeH: c.height }, export: { ...p.export, width: c.width, height: c.height } }));
+    patch((p) => ({
+      ...p,
+      geometry: { ...p.geometry, resizeW: originalCanvas.width, resizeH: originalCanvas.height },
+      export: { ...p.export, width: originalCanvas.width, height: originalCanvas.height }
+    }));
   }, [patch]);
 
   const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false, showBusy = false) => {
-    const src = sourceCanvasRef.current;
-    if (!src) return;
+    const originalSource = sourceCanvasRef.current;
+    const previewSource = previewSourceCanvasRef.current;
+    const src = forExport ? originalSource : (previewSource ?? originalSource);
+    if (!src || !originalSource) return;
     const token = ++renderTokenRef.current;
     if (showBusy) setBusy(true);
     await new Promise((r) => setTimeout(r, 0));
@@ -457,8 +485,16 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     const g = state.geometry;
     const cropX = Math.round((g.cropX / 100) * src.width), cropY = Math.round((g.cropY / 100) * src.height);
     const cropW = Math.max(1, Math.round((g.cropW / 100) * src.width)), cropH = Math.max(1, Math.round((g.cropH / 100) * src.height));
-    const outW = forExport && state.export.resizeOnExport ? state.export.width : g.resizeW || cropW;
-    const outH = forExport && state.export.resizeOnExport ? state.export.height : g.resizeH || cropH;
+    const previewScaleX = src.width / originalSource.width;
+    const previewScaleY = src.height / originalSource.height;
+    const targetW = forExport && state.export.resizeOnExport
+      ? state.export.width
+      : Math.max(1, Math.round((g.resizeW || Math.max(1, Math.round((g.cropW / 100) * originalSource.width))) * previewScaleX));
+    const targetH = forExport && state.export.resizeOnExport
+      ? state.export.height
+      : Math.max(1, Math.round((g.resizeH || Math.max(1, Math.round((g.cropH / 100) * originalSource.height))) * previewScaleY));
+    const outW = forExport ? targetW : Math.min(targetW, src.width);
+    const outH = forExport ? targetH : Math.min(targetH, src.height);
     const renderScale = !forExport && lightweight ? 0.45 : 1;
     const workW = Math.max(1, Math.round(outW * renderScale));
     const workH = Math.max(1, Math.round(outH * renderScale));
@@ -673,7 +709,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
     previewTimerRef.current = window.setTimeout(() => {
       if (showBefore || holdBefore) {
-        const src = sourceCanvasRef.current as HTMLCanvasElement;
+        const src = (previewSourceCanvasRef.current ?? sourceCanvasRef.current) as HTMLCanvasElement;
         const preview = previewCanvasRef.current as HTMLCanvasElement;
         preview.width = src.width;
         preview.height = src.height;
@@ -856,7 +892,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
         {(!isMobile || !mobileEditorOpen || mobileTool === "toneCurve") ? <div ref={setSectionRef("toneCurve")}><Collapsible icon={<SectionIcon kind="toneCurve" />} title="Tone Curve" right={<Button variant="ghost" onClick={() => resetSection("toneCurve")}>Reset</Button>}>
           <Field label="Channel"><Select value={curveChannel} onChange={(e) => setCurveChannel(e.target.value as CurveChannel)}><option value="rgb">RGB</option><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></Select></Field>
-          <canvas ref={curveCanvasRef} className="w-full rounded-lg mt-2 cursor-crosshair" onMouseDown={(e) => {
+          <canvas ref={curveCanvasRef} data-adjustment-control="true" className="w-full rounded-lg mt-2 cursor-crosshair" onMouseDown={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const x = ((e.clientX - rect.left) / rect.width) * 255;
             const y = 255 - ((e.clientY - rect.top) / rect.height) * 255;
