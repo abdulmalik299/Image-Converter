@@ -39,3 +39,19 @@ a { @apply underline decoration-slate-400 hover:decoration-slate-700 dark:decora
   background: rgba(56, 189, 248, 0.3);
   color: #0f172a;
 }
+
+.dark .bg-white {
+  background-color: rgb(30 41 59 / 0.9) !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: rgb(15 23 42 / 0.72) !important;
+}
+
+.dark .ring-slate-200 {
+  --tw-ring-color: rgb(51 65 85) !important;
+}
+
+.dark .border-slate-200 {
+  border-color: rgb(51 65 85) !important;
+}
