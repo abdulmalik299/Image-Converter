@@ -62,7 +62,7 @@ export function AppShell({ children, themeControl }: PropsWithChildren<{ themeCo
 
 export function Card({ title, subtitle, right, children }: PropsWithChildren<{ title: string; subtitle?: string; right?: React.ReactNode }>) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_20px_40px_-34px_rgba(15,23,42,.28)] backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/88 dark:shadow-none">
+    <section className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_20px_40px_-34px_rgba(15,23,42,.28)] backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90 dark:shadow-none">
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-700">
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
@@ -104,11 +104,13 @@ export function Field({ label, hint, children }: PropsWithChildren<{ label: stri
 }
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={["w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100", "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300"].join(" ")} />;
+  const { className = "", ...rest } = props;
+  return <input {...rest} className={["w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100", "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-300", className].join(" ")} />;
 }
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={["w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100", "focus:outline-none focus:ring-2 focus:ring-sky-300"].join(" ")} />;
+  const { className = "", ...rest } = props;
+  return <select {...rest} className={["w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100", "focus:outline-none focus:ring-2 focus:ring-sky-300", className].join(" ")} />;
 }
 
 export function Slider(props: React.InputHTMLAttributes<HTMLInputElement>) {

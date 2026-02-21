@@ -15,7 +15,7 @@ export type TabKey =
 
 function TabIcon({ path, accent }: { path: ReactNode; accent: string }) {
   return (
-    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/85 ring-1 ring-slate-200 shadow-sm">
+    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/85 ring-1 ring-slate-200 shadow-sm dark:bg-slate-800/90 dark:ring-slate-700">
       <svg viewBox="0 0 24 24" className={`h-5 w-5 ${accent}`} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {path}
       </svg>

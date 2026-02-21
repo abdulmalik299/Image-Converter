@@ -21,11 +21,11 @@ export function PreviewGrid({
   return (
     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((it) => (
-        <div key={it.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <div className="aspect-[16/10] bg-slate-50 flex items-center justify-center overflow-hidden">
+        <div key={it.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80">
+          <div className="aspect-[16/10] bg-slate-50 flex items-center justify-center overflow-hidden dark:bg-slate-800/70">
             {it.file.type === "image/svg+xml" ? (
-              <div className="w-full h-full flex items-center justify-center text-xs text-slate-600 p-4 text-center">
-                SVG file<br/><span className="text-slate-500">(preview may vary)</span>
+              <div className="w-full h-full flex items-center justify-center text-xs text-slate-600 p-4 text-center dark:text-slate-200">
+                SVG file<br/><span className="text-slate-500 dark:text-slate-400">(preview may vary)</span>
               </div>
             ) : (
               <img src={it.url} alt="" className="max-h-full max-w-full object-contain" />
@@ -34,8 +34,8 @@ export function PreviewGrid({
           <div className="p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-800">{it.file.name}</div>
-                <div className="text-xs text-slate-500">
+                <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{it.file.name}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   {it.file.type || "unknown"} • {humanBytes(it.file.size)}
                 </div>
                 {it.note ? <div className="text-xs text-amber-600 mt-1">{it.note}</div> : null}
@@ -44,7 +44,7 @@ export function PreviewGrid({
                 {extraRight ? extraRight(it.id) : null}
                 {onRemove ? (
                   <button
-                    className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200"
+                    className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700 dark:hover:bg-slate-700"
                     onClick={() => onRemove(it.id)}
                     title="Remove"
                   >
