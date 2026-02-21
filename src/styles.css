@@ -4,14 +4,16 @@
 
 :root {
   color-scheme: light;
-  --mx: 50%;
-  --my: 45%;
+}
+
+.dark {
+  color-scheme: dark;
 }
 
 * { -webkit-tap-highlight-color: transparent; }
 
 body {
-  @apply text-slate-800;
+  @apply text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-950;
 }
 
 body::before {
@@ -19,13 +21,14 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: -11;
-  background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(56, 189, 248, 0.18), transparent 24%),
-    radial-gradient(circle at 80% 16%, rgba(99, 102, 241, 0.12), transparent 38%),
-    linear-gradient(160deg, #eef8ff 0%, #edf4ff 42%, #f3f8ff 100%);
+  background: linear-gradient(165deg, #f4f7fb 0%, #eef3fb 45%, #e8eef9 100%);
 }
 
-a { @apply underline decoration-slate-400 hover:decoration-slate-700; }
+.dark body::before {
+  background: linear-gradient(165deg, #020617 0%, #0b1220 45%, #10192b 100%);
+}
+
+a { @apply underline decoration-slate-400 hover:decoration-slate-700 dark:decoration-slate-500 dark:hover:decoration-slate-300; }
 
 ::selection {
   background: rgba(56, 189, 248, 0.3);

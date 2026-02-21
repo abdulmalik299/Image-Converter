@@ -238,29 +238,50 @@ async function parseCube(file: File): Promise<LUT3D> {
   return { size, table: new Float32Array(values.slice(0, size * size * size * 3)) };
 }
 
-function Collapsible({ title, defaultOpen = true, right, children }: { title: string; defaultOpen?: boolean; right?: React.ReactNode; children: React.ReactNode }) {
+function SectionIcon({ kind }: { kind: "basicTone"|"toneCurve"|"color"|"grading"|"detail"|"geometry"|"advanced"|"export" }) {
+  const paths = {
+    basicTone: <><circle cx="12" cy="12" r="7"/><path d="M12 8v8M8 12h8"/></>,
+    toneCurve: <><path d="M4 16c3-5 6-8 16-8"/><path d="M4 6v14h16"/></>,
+    color: <><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 2"/></>,
+    grading: <><path d="M5 17h14"/><path d="M7 17V9m5 8V7m5 10v-5"/></>,
+    detail: <><path d="M12 3l2.5 5 5.5.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.5-.7z"/></>,
+    geometry: <><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8v8H8z"/></>,
+    advanced: <><path d="M12 3v3m0 12v3M4.2 7.2l2.1 2.1m11.4 11.4 2.1 2.1M3 12h3m12 0h3M4.2 16.8l2.1-2.1m11.4-11.4 2.1-2.1"/></>,
+    export: <><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><rect x="4" y="17" width="16" height="4" rx="1"/></>
+  } as const;
+  return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
+}
+
+function Collapsible({ title, defaultOpen = true, right, children, icon }: { title: string; defaultOpen?: boolean; right?: React.ReactNode; children: React.ReactNode; icon: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
-  return <div className="rounded-2xl border border-slate-200 bg-slate-50/80">
+  return <div className="rounded-2xl border border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/70">
     <button className="w-full px-4 py-3 flex justify-between items-center" onClick={() => setOpen((v) => !v)}>
-      <span className="font-semibold text-slate-800">{title}</span>
+      <span className="font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2">{icon}{title}</span>
       <span className="flex items-center gap-3">{right}{open ? "−" : "+"}</span>
     </button>
     {open ? <div className="px-4 pb-4">{children}</div> : null}
   </div>;
 }
 
-export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; setSettings: (up: (p: CommonRasterSettings) => CommonRasterSettings) => void }) {
+export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSettings; setSettings: (up: (p: CommonRasterSettings) => CommonRasterSettings) => void; active: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [toast, setToast] = useState<ToastState>({ open: false, message: "" });
   const [curveChannel, setCurveChannel] = useState<CurveChannel>("rgb");
   const [lut3d, setLut3d] = useState<LUT3D>(null);
   const [fileSizePreview, setFileSizePreview] = useState("-");
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState<"fit"|"100"|"custom">("fit");
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [showBefore, setShowBefore] = useState(false);
+  const [holdBefore, setHoldBefore] = useState(false);
+  const [showSettingsMobile, setShowSettingsMobile] = useState(false);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const histCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragPointRef = useRef<number | null>(null);
+  const renderTokenRef = useRef(0);
+  const previewUrlRef = useRef<string | null>(null);
 
   const { present: state, commit, undo, redo, past, future } = useHistory(defaultState);
 
@@ -446,17 +467,26 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
   }, [lut3d, state]);
 
   useEffect(() => {
-    if (!previewCanvasRef.current || !sourceCanvasRef.current) return;
+    if (!active || !previewCanvasRef.current || !sourceCanvasRef.current) return;
     const id = requestAnimationFrame(() => {
+      if (showBefore || holdBefore) {
+        const src = sourceCanvasRef.current as HTMLCanvasElement;
+        const preview = previewCanvasRef.current as HTMLCanvasElement;
+        preview.width = src.width;
+        preview.height = src.height;
+        preview.getContext("2d")?.drawImage(src, 0, 0);
+        return;
+      }
       applyPipeline(previewCanvasRef.current as HTMLCanvasElement, false).then(async () => {
         const blob = await new Promise<Blob | null>((r) => previewCanvasRef.current?.toBlob((b) => r(b), "image/jpeg", state.export.quality / 100));
         setFileSizePreview(blob ? `${(blob.size / 1024).toFixed(1)} KB` : "-");
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [state, applyPipeline]);
+  }, [state, applyPipeline, active, showBefore, holdBefore]);
 
   useEffect(() => {
+    if (!active) return;
     const canvas = histCanvasRef.current;
     const src = previewCanvasRef.current;
     if (!canvas || !src) return;
@@ -475,9 +505,10 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
       const h = (v / max) * canvas.height;
       ctx.fillRect((i / 256) * canvas.width, canvas.height - h, canvas.width / 256, h);
     });
-  }, [state]);
+  }, [state, active]);
 
   useEffect(() => {
+    if (!active) return;
     const canvas = curveCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -504,12 +535,17 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
       const x = (p.x / 255) * canvas.width, y = canvas.height - (p.y / 255) * canvas.height;
       ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
     });
-  }, [state.toneCurve, curveChannel]);
+  }, [state.toneCurve, curveChannel, active]);
+
+  useEffect(() => () => {
+    renderTokenRef.current += 1;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
 
   return <>
     <Toast state={toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div className="lg:col-span-2 space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] gap-4 h-[calc(100vh-14rem)]">
+      <div className="lg:sticky lg:top-4 h-full">
         <Card title="Adjustments" subtitle="Professional browser photo editor">
           <Dropzone accept={ACCEPT} label="Drop image" helper="All processing is client-side." onFiles={async (files) => {
             const f = files[0];
@@ -517,13 +553,23 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
             setFile(f);
             await loadImage(f);
           }} />
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-900/95 p-3 min-h-[280px] flex items-center justify-center relative">
-            {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} className="max-h-[520px] max-w-full rounded-lg" />}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant="ghost" onClick={() => { setZoom("fit"); setZoomLevel(1); }}>Fit</Button>
+            <Button variant="ghost" onClick={() => { setZoom("100"); setZoomLevel(1); }}>100%</Button>
+            <Button variant="ghost" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}>-</Button>
+            <Button variant="ghost" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}>+</Button>
+            <Button variant={showBefore ? "primary" : "ghost"} onClick={() => setShowBefore((v) => !v)}>Before/After</Button>
+            <Button variant="ghost" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}>Hold original</Button>
+            <Button variant="ghost" className="lg:hidden" onClick={() => setShowSettingsMobile((v) => !v)}>{showSettingsMobile ? "Hide controls" : "Show controls"}</Button>
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-900/95 p-3 min-h-[280px] h-[min(64vh,680px)] flex items-center justify-center relative overflow-auto">
+            {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="max-h-full max-w-full rounded-lg transition-transform" />}
             {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Processing…</div> : null}
+            {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
           </div>
         </Card>
       </div>
-      <div className="space-y-4">
+      <div className={`${showSettingsMobile ? "block" : "hidden"} lg:block space-y-4 lg:overflow-y-auto h-full pr-1`}>
         <Card title="Workflow" right={<Button variant="ghost" onClick={resetAll}>Reset All</Button>}>
           <div className="flex gap-2 mb-3">
             <Button variant="ghost" disabled={!past.length} onClick={undo}>Undo</Button>
@@ -532,11 +578,11 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
           <Field label="Histogram"><canvas ref={histCanvasRef} className="w-full rounded-lg border border-slate-700" /></Field>
         </Card>
 
-        <Collapsible title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
           {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={String(v)}><Slider min={k === "exposure" ? -5 : -100} max={k === "exposure" ? 5 : 100} step={k === "exposure" ? 0.1 : 1} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
         </Collapsible>
 
-        <Collapsible title="Tone Curve" right={<Button variant="ghost" onClick={() => resetSection("toneCurve")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="toneCurve" />} title="Tone Curve" right={<Button variant="ghost" onClick={() => resetSection("toneCurve")}>Reset</Button>}>
           <Field label="Channel"><Select value={curveChannel} onChange={(e) => setCurveChannel(e.target.value as CurveChannel)}><option value="rgb">RGB</option><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></Select></Field>
           <canvas ref={curveCanvasRef} className="w-full rounded-lg mt-2 cursor-crosshair" onMouseDown={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -567,7 +613,7 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
           }} onMouseUp={() => { dragPointRef.current = null; }} />
         </Collapsible>
 
-        <Collapsible title="Color" right={<Button variant="ghost" onClick={() => resetSection("color")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="color" />} title="Color" right={<Button variant="ghost" onClick={() => resetSection("color")}>Reset</Button>}>
           {(["temperature", "tint", "vibrance", "saturation"] as const).map((k) => <Field key={k} label={k} hint={String(state.color[k])}><Slider min={-100} max={100} value={state.color[k]} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, [k]: Number(e.target.value) } }))} /></Field>)}
           {HSL_RANGES.map((range) => <div className="grid grid-cols-3 gap-2" key={range}>
             <Field label={`${range} H`} hint={String(state.color.hsl[range].hue)}><Slider min={-100} max={100} value={state.color.hsl[range].hue} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], hue: Number(e.target.value) } } } }))} /></Field>
@@ -576,7 +622,7 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
           </div>)}
         </Collapsible>
 
-        <Collapsible title="Color Grading" right={<Button variant="ghost" onClick={() => resetSection("grading")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="grading" />} title="Color Grading" right={<Button variant="ghost" onClick={() => resetSection("grading")}>Reset</Button>}>
           {(["shadows", "midtones", "highlights"] as const).map((tone) => <div className="grid grid-cols-3 gap-2" key={tone}>
             <Field label={`${tone} hue`} hint={String(state.grading[tone].hue)}><Slider min={0} max={360} value={state.grading[tone].hue} onChange={(e) => patch((p) => ({ ...p, grading: { ...p.grading, [tone]: { ...p.grading[tone], hue: Number(e.target.value) } } }))} /></Field>
             <Field label="sat" hint={String(state.grading[tone].sat)}><Slider min={0} max={100} value={state.grading[tone].sat} onChange={(e) => patch((p) => ({ ...p, grading: { ...p.grading, [tone]: { ...p.grading[tone], sat: Number(e.target.value) } } }))} /></Field>
@@ -584,11 +630,11 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
           </div>)}
         </Collapsible>
 
-        <Collapsible title="Detail" right={<Button variant="ghost" onClick={() => resetSection("detail")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="detail" />} title="Detail" right={<Button variant="ghost" onClick={() => resetSection("detail")}>Reset</Button>}>
           {Object.entries(state.detail).map(([k, v]) => <Field key={k} label={k} hint={String(v)}><Slider min={k === "sharpenRadius" ? 1 : 0} max={100} value={v} onChange={(e) => patch((p) => ({ ...p, detail: { ...p.detail, [k]: Number(e.target.value) } }))} /></Field>)}
         </Collapsible>
 
-        <Collapsible title="Geometry" right={<Button variant="ghost" onClick={() => resetSection("geometry")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="geometry" />} title="Geometry" right={<Button variant="ghost" onClick={() => resetSection("geometry")}>Reset</Button>}>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Crop X"><Slider min={0} max={90} value={state.geometry.cropX} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropX: Number(e.target.value) } }))} /></Field>
             <Field label="Crop Y"><Slider min={0} max={90} value={state.geometry.cropY} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropY: Number(e.target.value) } }))} /></Field>
@@ -605,7 +651,7 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
           <Field label="Smoothing"><Select value={state.geometry.smoothingQuality} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, smoothingQuality: e.target.value as "low" | "medium" | "high" } }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></Field>
         </Collapsible>
 
-        <Collapsible title="Advanced" right={<Button variant="ghost" onClick={() => resetSection("advanced")}>Reset</Button>}>
+        <Collapsible icon={<SectionIcon kind="advanced" />} title="Advanced" right={<Button variant="ghost" onClick={() => resetSection("advanced")}>Reset</Button>}>
           <Field label="Gamma" hint={state.advanced.gamma.toFixed(2)}><Slider min={0.2} max={3} step={0.01} value={state.advanced.gamma} onChange={(e) => patch((p) => ({ ...p, advanced: { ...p.advanced, gamma: Number(e.target.value) } }))} /></Field>
           {(["r", "g", "b"] as const).map((row) => <div key={row} className="grid grid-cols-3 gap-2">{(["r", "g", "b"] as const).map((col) => <Field key={`${row}${col}`} label={`${row.toUpperCase()}←${col.toUpperCase()}`}><Slider min={-200} max={200} value={state.advanced.channelMixer[row][col]} onChange={(e) => patch((p) => ({ ...p, advanced: { ...p.advanced, channelMixer: { ...p.advanced.channelMixer, [row]: { ...p.advanced.channelMixer[row], [col]: Number(e.target.value) } } } }))} /></Field>)}</div>)}
           <div className="flex gap-2 my-2"><Button variant="ghost" onClick={() => patch((p) => ({ ...p, advanced: { ...p.advanced, labMode: !p.advanced.labMode } }))}>{state.advanced.labMode ? "LAB On" : "LAB Off"}</Button><Button variant="ghost" onClick={() => patch((p) => ({ ...p, advanced: { ...p.advanced, edgePreview: !p.advanced.edgePreview } }))}>{state.advanced.edgePreview ? "Edge On" : "Edge Off"}</Button></div>
@@ -619,7 +665,7 @@ export function UpscaleTab({ setSettings }: { settings: CommonRasterSettings; se
           }} /></Field>
         </Collapsible>
 
-        <Collapsible title="Export Settings">
+        <Collapsible icon={<SectionIcon kind="export" />} title="Export Settings">
           <Field label="Format"><Select value={state.export.format} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, format: e.target.value as EditorState["export"]["format"] } }))}><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WebP</option><option value="avif">AVIF</option></Select></Field>
           <Field label="Quality" hint={String(state.export.quality)}><Slider min={1} max={100} value={state.export.quality} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, quality: Number(e.target.value) } }))} /></Field>
           <Field label="Bit depth"><Select value={state.export.bitDepth}><option value="8-bit">8-bit</option></Select></Field>

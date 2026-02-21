@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { AppShell } from "./components/ui";
+import { useEffect, useMemo } from "react";
+import { AppShell, Select } from "./components/ui";
 import { FlowBackground } from "./components/FlowBackground";
 import { TabBar } from "./components/TabBar";
 import type { TabKey } from "./tabs/tabs";
@@ -16,60 +16,33 @@ import { HelpTab } from "./tabs/HelpTab";
 import { UpscaleTab } from "./tabs/UpscaleTab";
 import { PdfRasterTab } from "./tabs/PdfRasterTab";
 
+type ThemeMode = "system" | "light" | "dark";
+
 export default function App() {
   const [tab, setTab] = useLocal<TabKey>("ic.tab", "png-jpg");
   const [raster, setRaster] = useLocal<CommonRasterSettings>("ic.raster", defaultRasterSettings);
+  const [theme, setTheme] = useLocal<ThemeMode>("ic.theme", "system");
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const useDark = theme === "dark" || (theme === "system" && media.matches);
+      root.classList.toggle("dark", useDark);
+    };
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [theme]);
 
   const page = useMemo(() => {
     switch (tab) {
       case "png-jpg":
-        return (
-          <RasterPairTab
-            title="PNG ↔ JPG"
-            subtitle="Convert PNG to JPG (choose background), or JPG to PNG (graphics)."
-            recommended={[
-              "Use PNG for logos, UI, text, or transparency.",
-              "Use JPG for photos when you want smaller size.",
-              "When exporting to JPG from PNG: pick a background color."
-            ]}
-            fixedOutChoices={["png", "jpg"]}
-            defaultOut="jpg"
-            settings={raster}
-            setSettings={(up) => setRaster((p) => up(p))}
-          />
-        );
+        return <RasterPairTab title="PNG ↔ JPG" subtitle="Convert PNG to JPG (choose background), or JPG to PNG (graphics)." recommended={["Use PNG for logos, UI, text, or transparency.", "Use JPG for photos when you want smaller size.", "When exporting to JPG from PNG: pick a background color."]} fixedOutChoices={["png", "jpg"]} defaultOut="jpg" settings={raster} setSettings={(up) => setRaster((p) => up(p))} />;
       case "png-webp":
-        return (
-          <RasterPairTab
-            title="PNG ↔ WebP"
-            subtitle="WebP is modern and often smaller. Great for web performance."
-            recommended={[
-              "WebP is usually smaller than PNG while looking similar.",
-              "Use PNG when you need crisp text and maximum compatibility.",
-              "PNG and WebP can both support transparency."
-            ]}
-            fixedOutChoices={["png", "webp"]}
-            defaultOut="webp"
-            settings={raster}
-            setSettings={(up) => setRaster((p) => up(p))}
-          />
-        );
+        return <RasterPairTab title="PNG ↔ WebP" subtitle="WebP is modern and often smaller. Great for web performance." recommended={["WebP is usually smaller than PNG while looking similar.", "Use PNG when you need crisp text and maximum compatibility.", "PNG and WebP can both support transparency."]} fixedOutChoices={["png", "webp"]} defaultOut="webp" settings={raster} setSettings={(up) => setRaster((p) => up(p))} />;
       case "jpg-webp":
-        return (
-          <RasterPairTab
-            title="JPG ↔ WebP"
-            subtitle="Photo-focused conversion with a quality slider."
-            recommended={[
-              "WebP can reduce JPG size significantly at similar quality.",
-              "For high quality photos, try 92–95.",
-              "If you see blur: increase quality."
-            ]}
-            fixedOutChoices={["jpg", "webp"]}
-            defaultOut="webp"
-            settings={raster}
-            setSettings={(up) => setRaster((p) => up(p))}
-          />
-        );
+        return <RasterPairTab title="JPG ↔ WebP" subtitle="Photo-focused conversion with a quality slider." recommended={["WebP can reduce JPG size significantly at similar quality.", "For high quality photos, try 92–95.", "If you see blur: increase quality."]} fixedOutChoices={["jpg", "webp"]} defaultOut="webp" settings={raster} setSettings={(up) => setRaster((p) => up(p))} />;
       case "any-raster":
         return <AnyRasterTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
       case "raster-svg":
@@ -81,7 +54,7 @@ export default function App() {
       case "finder":
         return <ConversionFinderTab />;
       case "upscale":
-        return <UpscaleTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} />;
+        return <UpscaleTab settings={raster} setSettings={(up)=>setRaster((p)=>up(p))} active={tab === "upscale"} />;
       case "pdf-raster":
         return <PdfRasterTab />;
       case "help":
@@ -94,7 +67,9 @@ export default function App() {
   return (
     <>
       <FlowBackground />
-      <AppShell>
+      <AppShell
+        themeControl={<div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><span>Theme</span><Select value={theme} onChange={(e) => setTheme(e.target.value as ThemeMode)} className="w-36"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></Select></div>}
+      >
         <TabBar value={tab} onChange={setTab} />
         <div className="mt-5">{page}</div>
       </AppShell>
