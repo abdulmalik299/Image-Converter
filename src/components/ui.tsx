@@ -114,7 +114,18 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 export function Slider(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} type="range" className="w-full accent-sky-600" />;
+  const { onChange, value, className = "", ...rest } = props;
+  return <input
+    {...rest}
+    value={value}
+    type="range"
+    className={`w-full accent-sky-600 ${className}`}
+    onChange={(e) => {
+      if (!onChange) return;
+      if (String(value ?? "") === e.currentTarget.value) return;
+      onChange(e);
+    }}
+  />;
 }
 
 export function Divider({ label }: { label?: string }) {
