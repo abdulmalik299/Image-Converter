@@ -300,10 +300,13 @@ function SectionIcon({ kind }: { kind: "basicTone"|"toneCurve"|"color"|"grading"
 function Collapsible({ title, defaultOpen = true, right, children, icon }: { title: string; defaultOpen?: boolean; right?: React.ReactNode; children: React.ReactNode; icon: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   return <div className="rounded-2xl border border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/70">
-    <button className="w-full px-4 py-3 flex justify-between items-center" onClick={() => setOpen((v) => !v)}>
-      <span className="font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2">{icon}{title}</span>
-      <span className="flex items-center gap-3">{right}{open ? "−" : "+"}</span>
-    </button>
+    <div className="w-full px-4 py-3 flex items-center gap-3">
+      <button type="button" className="flex-1 flex justify-between items-center" onClick={() => setOpen((v) => !v)}>
+        <span className="font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2">{icon}{title}</span>
+        <span>{open ? "−" : "+"}</span>
+      </button>
+      {right ? <div onClick={(e) => e.stopPropagation()}>{right}</div> : null}
+    </div>
     {open ? <div className="px-4 pb-4">{children}</div> : null}
   </div>;
 }
@@ -338,6 +341,9 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const sliderInteractionDepthRef = useRef(0);
   const settleTimerRef = useRef<number | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const preparedExportUrlRef = useRef<string | null>(null);
+  const [preparedExport, setPreparedExport] = useState<{ url: string; name: string; size: string } | null>(null);
   const sectionRefs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     basicTone: null,
     toneCurve: null,
@@ -453,7 +459,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     const cropW = Math.max(1, Math.round((g.cropW / 100) * src.width)), cropH = Math.max(1, Math.round((g.cropH / 100) * src.height));
     const outW = forExport && state.export.resizeOnExport ? state.export.width : g.resizeW || cropW;
     const outH = forExport && state.export.resizeOnExport ? state.export.height : g.resizeH || cropH;
-    const renderScale = !forExport && lightweight ? 0.6 : 1;
+    const renderScale = !forExport && lightweight ? 0.45 : 1;
     const workW = Math.max(1, Math.round(outW * renderScale));
     const workH = Math.max(1, Math.round(outH * renderScale));
 
@@ -664,7 +670,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   useEffect(() => {
     if (!adjustmentActive || !previewCanvasRef.current || !sourceCanvasRef.current) return;
-    const id = requestAnimationFrame(() => {
+    if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = window.setTimeout(() => {
       if (showBefore || holdBefore) {
         const src = sourceCanvasRef.current as HTMLCanvasElement;
         const preview = previewCanvasRef.current as HTMLCanvasElement;
@@ -674,11 +681,14 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         return;
       }
       applyPipeline(previewCanvasRef.current as HTMLCanvasElement, false, isInteracting || previewQualityMode === "interactive", false).then(async () => {
+        if (isInteracting || previewQualityMode === "interactive") return;
         const blob = await new Promise<Blob | null>((r) => previewCanvasRef.current?.toBlob((b) => r(b), "image/jpeg", state.export.quality / 100));
         setFileSizePreview(blob ? `${(blob.size / 1024).toFixed(1)} KB` : "-");
       });
-    });
-    return () => cancelAnimationFrame(id);
+    }, isInteracting ? 90 : 35);
+    return () => {
+      if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
+    };
   }, [state, applyPipeline, adjustmentActive, showBefore, holdBefore, isInteracting, previewQualityMode]);
 
   useEffect(() => {
@@ -736,10 +746,31 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   useEffect(() => () => {
     renderTokenRef.current += 1;
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+    if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
   }, []);
 
   const sheetHeightClass = sheetState === "collapsed" ? "h-[120px]" : sheetState === "full" ? "h-[90vh]" : "h-[50vh]";
+
+  useEffect(() => {
+    if (!file || !preparedExport) return;
+    if (preparedExportUrlRef.current) {
+      URL.revokeObjectURL(preparedExportUrlRef.current);
+      preparedExportUrlRef.current = null;
+    }
+    setPreparedExport(null);
+  }, [
+    file,
+    state.basicTone,
+    state.toneCurve,
+    state.color,
+    state.grading,
+    state.detail,
+    state.geometry,
+    state.advanced,
+    state.export
+  ]);
 
   const activeMobileSliderGroup = MOBILE_SLIDER_GROUPS[mobileTool] ?? null;
   const activeMobileSliderMeta = activeMobileSliderGroup?.[mobileSliderIndex] ?? null;
@@ -781,6 +812,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             const f = files[0];
             if (!f) return;
             setFile(f);
+            if (preparedExportUrlRef.current) { URL.revokeObjectURL(preparedExportUrlRef.current); preparedExportUrlRef.current = null; }
+            setPreparedExport(null);
             await loadImage(f);
           }} />
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -794,7 +827,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           </div>
           <div className={isMobile && mobileEditorOpen ? "mt-2 rounded-none border-0 bg-slate-900 p-3 h-[calc(100vh-8rem)] flex items-center justify-center relative overflow-hidden" : "mt-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-900/95 p-3 min-h-[280px] h-[min(64vh,680px)] flex items-center justify-center relative overflow-auto"}>
             {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="max-h-full max-w-full rounded-lg transition-transform" />}
-            {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Exporting…</div> : null}
+            {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
             {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
             {isMobile && mobileEditorOpen ? <button className="absolute top-2 left-2 rounded bg-slate-900/80 px-2 py-1 text-xs" onClick={() => { setShowSettingsMobile((v) => !v); if (showSettingsMobile) setSheetState("collapsed"); else setSheetState("half"); }}>{showSettingsMobile ? "Hide controls" : "Show controls"}</button> : null}
           </div>
@@ -920,13 +953,19 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
             const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
             if (!blob) return;
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = `edited.${state.export.format === "jpg" ? "jpg" : state.export.format}`;
-            a.click();
-            URL.revokeObjectURL(a.href);
+            if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
+            const nextUrl = URL.createObjectURL(blob);
+            preparedExportUrlRef.current = nextUrl;
+            const ext = state.export.format === "jpg" ? "jpg" : state.export.format;
+            setPreparedExport({ url: nextUrl, name: `edited.${ext}`, size: `${(blob.size / 1024).toFixed(1)} KB` });
             setSettings((p) => ({ ...p, quality: state.export.quality, out: state.export.format === "jpg" ? "jpeg" : state.export.format as any }));
-          }}>Export</Button>
+          }}>Prepare export</Button>
+          {preparedExport ? <div className="mt-2 rounded-xl bg-slate-100 p-2 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">Ready to download: <b>{preparedExport.name}</b> · {preparedExport.size}<Button className="mt-2 w-full" onClick={() => {
+            const a = document.createElement("a");
+            a.href = preparedExport.url;
+            a.download = preparedExport.name;
+            a.click();
+          }}>Download final image</Button></div> : null}
         </Collapsible>
         </div> : null}
       </div>
