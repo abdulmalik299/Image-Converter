@@ -37,9 +37,9 @@ export function AppShell({ children }: PropsWithChildren) {
                 <HeaderGlyph />
               </div>
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Image Converter</h1>
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Photo Editor Pro</h1>
                 <p className="text-base text-slate-600">
-                  Premium image conversion with calm design, better quality controls, and one-click results.
+                  Professional browser-based photo editing with non-destructive controls and real-time preview.
                 </p>
               </div>
             </div>
