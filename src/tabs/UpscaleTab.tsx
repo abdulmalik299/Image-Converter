@@ -149,11 +149,16 @@ function useHistory<T>(initial: T) {
   const [past, setPast] = useState<T[]>([]);
   const [present, setPresent] = useState<T>(initial);
   const [future, setFuture] = useState<T[]>([]);
+  const equals = useCallback((a: T, b: T) => JSON.stringify(a) === JSON.stringify(b), []);
+
   const commit = useCallback((next: T) => {
-    setPast((p) => [...p.slice(-30), present]);
-    setPresent(next);
-    setFuture([]);
-  }, [present]);
+    setPresent((current) => {
+      if (equals(current, next)) return current;
+      setPast((p) => [...p.slice(-30), current]);
+      setFuture([]);
+      return next;
+    });
+  }, [equals]);
   const undo = useCallback(() => {
     setPast((p) => {
       if (!p.length) return p;
@@ -316,7 +321,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [showBefore, setShowBefore] = useState(false);
   const [holdBefore, setHoldBefore] = useState(false);
   const [showSettingsMobile, setShowSettingsMobile] = useState(true);
-  const [mobileEditorOpen, setMobileEditorOpen] = useState(true);
+  const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
   const [mobileTool, setMobileTool] = useState<SectionKey>("basicTone");
   const [isMobile, setIsMobile] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => typeof document === "undefined" ? true : document.visibilityState === "visible");
@@ -355,8 +360,9 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const resetSection = (section: keyof EditorState) => patch((p) => ({ ...p, [section]: defaultState[section] }));
   const resetAll = () => { commit(defaultState); setLut3d(null); };
-  const toolbarBtnClass = `h-11 w-11 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border border-transparent bg-transparent hover:bg-slate-800/50" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
-  const toolbarToggleBtnClass = `h-11 w-11 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border border-transparent bg-transparent hover:bg-slate-800/50" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
+  const toolbarBtnClass = `h-10 w-10 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border-0 bg-transparent ring-0 hover:bg-slate-800/45" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
+  const toolbarToggleBtnClass = `h-10 w-10 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border-0 bg-transparent ring-0 hover:bg-slate-800/45" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
+  const mobileControlsClass = "pointer-events-auto absolute left-3 top-3 z-20 flex flex-wrap items-center gap-1.5";
 
   const adjustmentActive = active && isDocumentVisible && (!isMobile || mobileEditorOpen);
 
@@ -475,7 +481,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     setPreparedExport(null);
     await loadImage(f);
     setCanvasRenderNonce((v) => v + 1);
-  }, [loadImage]);
+    if (isMobile) {
+      setShowSettingsMobile(true);
+      setMobileEditorOpen(true);
+    }
+  }, [isMobile, loadImage]);
 
   const clearLoadedImage = useCallback(() => {
     setFile(null);
@@ -705,11 +715,15 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   }, []);
 
   useEffect(() => {
-    if (!isMobile) {
-      setMobileEditorOpen(false);
-      setShowSettingsMobile(false);
+    if (isMobile) {
+      setMobileEditorOpen(true);
+      setShowSettingsMobile(true);
       setSheetState("half");
+      return;
     }
+    setMobileEditorOpen(false);
+    setShowSettingsMobile(false);
+    setSheetState("half");
   }, [isMobile]);
 
   useEffect(() => {
@@ -788,8 +802,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
   }, []);
 
-  const sheetHeightClass = sheetState === "collapsed" ? "h-[120px]" : sheetState === "full" ? "h-[90vh]" : "h-[50vh]";
-
   useEffect(() => {
     if (!file || !preparedExport) return;
     if (preparedExportUrlRef.current) {
@@ -822,12 +834,36 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           e.currentTarget.value = "";
         }}
       />
-      <div className={`absolute top-3 z-20 ${isMobile ? "right-3 flex flex-col items-end gap-1.5" : "inset-x-3 flex flex-col gap-2 sm:inset-x-4 sm:top-4 sm:flex-row sm:items-start sm:justify-between"}`}>
+      {isMobile ? <>
+      <div className={mobileControlsClass}>
+        <Button variant="ghost" className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></Button>
+        <Button variant={showBefore ? "primary" : "ghost"} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
+      </div>
+      {file ? <button
+        type="button"
+        className="pointer-events-auto absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-slate-300/70 bg-slate-950/85 text-3xl leading-none text-white hover:border-sky-400"
+        onClick={(event) => {
+          event.stopPropagation();
+          clearLoadedImage();
+        }}
+        aria-label="Close preview"
+        title="Close image"
+      >
+        ×
+      </button> : null}
+      </> : <div className="absolute inset-x-3 top-3 z-20 flex flex-col gap-2 sm:inset-x-4 sm:top-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-1.5 pointer-events-auto">
           <Button variant="ghost" className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
         </div>
-        <div className={`pointer-events-auto ${isMobile ? "flex flex-col items-end gap-1.5" : "flex flex-wrap justify-start gap-2 sm:justify-end"}`}>
+        <div className="pointer-events-auto flex flex-wrap justify-start gap-2 sm:justify-end">
           <Button variant="ghost" className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
@@ -848,7 +884,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             ×
           </button> : null}
         </div>
-      </div>
+      </div>}
+
       <div className="h-full w-full p-3 pb-36 md:p-4 md:pb-36">
         <div
           className={`relative flex h-full w-full items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 ${!file ? "cursor-pointer" : "cursor-default"}`}
@@ -867,6 +904,10 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         <div className="space-y-4">
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
           {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={String(v)}><Slider min={k === "exposure" ? -5 : -100} max={k === "exposure" ? 5 : 100} step={k === "exposure" ? 0.1 : 1} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Exposure (precise)"><Input type="number" step={0.01} min={-5} max={5} value={state.basicTone.exposure} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, exposure: Number(e.target.value) } }))} /></Field>
+            <Field label="Contrast (precise)"><Input type="number" step={0.1} min={-100} max={100} value={state.basicTone.contrast} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, contrast: Number(e.target.value) } }))} /></Field>
+          </div>
         </Collapsible></div> : null}
 
         {(mobileTool === "toneCurve") ? <div ref={setSectionRef("toneCurve")}><Collapsible icon={<SectionIcon kind="toneCurve" />} title="Tone Curve" right={<Button variant="ghost" onClick={() => resetSection("toneCurve")}>Reset</Button>}>
