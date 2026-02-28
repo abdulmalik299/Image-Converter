@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
 import { Button, Card, Field, Input, Select, Slider } from "../components/ui";
-import { Dropzone } from "../components/Dropzone";
 import { Toast, type ToastState } from "../components/Toast";
 import type { CommonRasterSettings } from "../lib/settings";
 
@@ -298,6 +297,21 @@ function SectionIcon({ kind }: { kind: "basicTone"|"toneCurve"|"color"|"grading"
   return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
 }
 
+function ToolbarIcon({ kind }: { kind: "undo"|"redo"|"fit"|"actual"|"zoomOut"|"zoomIn"|"compare"|"hold"|"reset" }) {
+  const paths = {
+    undo: <><path d="M9 7H4v5" /><path d="M4 12a8 8 0 1 0 2.5-5.8" /></>,
+    redo: <><path d="M15 7h5v5" /><path d="M20 12a8 8 0 1 1-2.5-5.8" /></>,
+    fit: <><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M9 20H4v-5" /><path d="M15 20h5v-5" /></>,
+    actual: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 8h8v8H8z" /></>,
+    zoomOut: <><circle cx="11" cy="11" r="6.5" /><path d="M8.5 11h5" /><path d="m16 16 4 4" /></>,
+    zoomIn: <><circle cx="11" cy="11" r="6.5" /><path d="M8.5 11h5" /><path d="M11 8.5v5" /><path d="m16 16 4 4" /></>,
+    compare: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M12 5v14" /></>,
+    hold: <><path d="M12 4v16" /><path d="M8 8h8" /><path d="M8 16h8" /></>,
+    reset: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v5h5" /></>
+  } as const;
+  return <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
+}
+
 function Collapsible({ title, defaultOpen = true, right, children, icon }: { title: string; defaultOpen?: boolean; right?: React.ReactNode; children: React.ReactNode; icon: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   return <div className="rounded-2xl border border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/70">
@@ -340,6 +354,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const dragPointRef = useRef<number | null>(null);
   const renderTokenRef = useRef(0);
   const previewUrlRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const sliderInteractionDepthRef = useRef(0);
   const settleTimerRef = useRef<number | null>(null);
@@ -472,6 +487,18 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       export: { ...p.export, width: originalCanvas.width, height: originalCanvas.height }
     }));
   }, [patch]);
+
+  const handleImageSelect = useCallback(async (f?: File | null) => {
+    if (!f) return;
+    if (!ACCEPT.includes(f.type)) {
+      setToast({ open: true, message: "Please choose a supported image format.", type: "error" });
+      return;
+    }
+    setFile(f);
+    if (preparedExportUrlRef.current) { URL.revokeObjectURL(preparedExportUrlRef.current); preparedExportUrlRef.current = null; }
+    setPreparedExport(null);
+    await loadImage(f);
+  }, [loadImage]);
 
   const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false, showBusy = false) => {
     const originalSource = sourceCanvasRef.current;
@@ -832,39 +859,41 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     return null;
   };
 
-  const onPreviewAreaClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement;
-    if (!target.closest("canvas")) return;
-    setShowSettingsMobile((v) => !v);
-  };
-
   return <>
     <Toast state={toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />
     <div className="relative h-[calc(100vh-14rem)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-2xl dark:border-slate-700">
-      <div className="absolute left-4 top-4 z-20 w-[min(340px,calc(100%-2rem))]">
-        <Dropzone accept={ACCEPT} label="Drop image" helper="All processing is client-side." onFiles={async (files) => {
-          const f = files[0];
-          if (!f) return;
-          setFile(f);
-          if (preparedExportUrlRef.current) { URL.revokeObjectURL(preparedExportUrlRef.current); preparedExportUrlRef.current = null; }
-          setPreparedExport(null);
-          await loadImage(f);
-        }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPT.join(",")}
+        className="hidden"
+        onChange={async (e) => {
+          await handleImageSelect(e.target.files?.[0]);
+          e.currentTarget.value = "";
+        }}
+      />
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+        <Button variant="ghost" title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
+        <Button variant="ghost" title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
       </div>
       <div className="absolute right-4 top-4 z-20 flex flex-wrap justify-end gap-2">
-        <Button variant="ghost" onClick={() => { setZoom("fit"); setZoomLevel(1); }}>Fit</Button>
-        <Button variant="ghost" onClick={() => { setZoom("100"); setZoomLevel(1); }}>100%</Button>
-        <Button variant="ghost" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}>−</Button>
-        <Button variant="ghost" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}>+</Button>
-        <Button variant={showBefore ? "primary" : "ghost"} onClick={() => setShowBefore((v) => !v)}>Before/After</Button>
-        <Button variant="ghost" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}>Hold original</Button>
-        <Button variant="ghost" onClick={resetAll}>Reset</Button>
+        <Button variant="ghost" title="Fit" aria-label="Fit" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
+        <Button variant="ghost" title="100%" aria-label="100%" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
+        <Button variant="ghost" title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
+        <Button variant="ghost" title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></Button>
+        <Button variant={showBefore ? "primary" : "ghost"} title="Before/After" aria-label="Before/After" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
+        <Button variant="ghost" title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
+        <Button variant="ghost" title="Reset adjustments" aria-label="Reset adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
       </div>
-      <div className="h-full w-full p-4 pb-36" onClick={onPreviewAreaClick}>
-        <div className="relative flex h-full w-full items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-slate-950/95">
+      <div className="h-full w-full p-4 pb-36">
+        <div
+          className="relative flex h-full w-full cursor-pointer items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-slate-950/95"
+          onClick={() => fileInputRef.current?.click()}
+        >
           {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="max-h-full max-w-full rounded-lg transition-transform" />}
           {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
           {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
+          <div className="absolute bottom-3 left-3 rounded bg-slate-900/70 px-2 py-1 text-xs text-slate-200">Tap preview to upload/replace</div>
         </div>
       </div>
 
@@ -872,12 +901,9 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         {activeMobileSliderGroup ? <div className="mb-2 flex gap-2 overflow-x-auto pb-2">{activeMobileSliderGroup.map((slider, idx) => <button key={slider.key} className={`rounded-full px-2.5 py-1 text-[11px] ${mobileSliderIndex === idx ? "bg-slate-700 text-white" : "bg-slate-800/70 text-slate-300"}`} onClick={() => setMobileSliderIndex(idx)}>{slider.label}</button>)}</div> : null}
         {renderMobileSliderRow() ? <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/70 p-2">{renderMobileSliderRow()}</div> : null}
         <div className="space-y-4">
-        <Card title="Workflow" right={<Button variant="ghost" onClick={resetAll}>Reset All</Button>}>
-          <div className="flex gap-2 mb-3">
-            <Button variant="ghost" disabled={!past.length} onClick={undo}>Undo</Button>
-            <Button variant="ghost" disabled={!future.length} onClick={redo}>Redo</Button>
-          </div>
+        <Card title="Analysis">
           <Field label="Histogram"><canvas ref={histCanvasRef} className="w-full rounded-lg border border-slate-700" /></Field>
+          <p className="mt-2 text-xs text-slate-400">Realtime histogram and color tools help build a professional-grade editing workflow.</p>
         </Card>
 
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
@@ -1002,7 +1028,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       </div> : null}
 
       <div className="absolute inset-x-4 bottom-4 z-30">
-        <div className="mx-auto flex w-fit items-center gap-2 rounded-2xl border border-slate-600/60 bg-slate-900/80 px-3 py-2 backdrop-blur-md">
+        <div className="mx-auto w-full overflow-x-auto rounded-2xl border border-slate-600/60 bg-slate-900/80 px-3 py-2 backdrop-blur-md [scrollbar-width:thin]">
+          <div className="flex min-w-max items-center justify-center gap-2">
           {SECTION_ITEMS.map((item) => <button
             key={item.key}
             type="button"
@@ -1019,6 +1046,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           >
             <SectionIcon kind={item.key} />
           </button>)}
+          </div>
         </div>
       </div>
     </div>
