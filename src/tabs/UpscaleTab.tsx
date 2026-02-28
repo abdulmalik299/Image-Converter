@@ -95,28 +95,6 @@ function applyColorSpaceTransform(r: number, g: number, b: number, colorSpace: E
   return { r, g, b };
 }
 
-const MOBILE_SLIDER_GROUPS: Partial<Record<SectionKey, Array<{ key: string; label: string; min: number; max: number; step?: number }>>> = {
-  basicTone: [
-    { key: "exposure", label: "Exposure", min: -5, max: 5, step: 0.1 },
-    { key: "brightness", label: "Brightness", min: -100, max: 100 },
-    { key: "contrast", label: "Contrast", min: -100, max: 100 },
-    { key: "highlights", label: "Highlights", min: -100, max: 100 },
-    { key: "shadows", label: "Shadows", min: -100, max: 100 },
-    { key: "whites", label: "Whites", min: -100, max: 100 },
-    { key: "blacks", label: "Blacks", min: -100, max: 100 }
-  ],
-  detail: [
-    { key: "sharpenAmount", label: "Sharpen", min: 0, max: 100 },
-    { key: "sharpenRadius", label: "Radius", min: 1, max: 100 },
-    { key: "sharpenThreshold", label: "Threshold", min: 0, max: 100 },
-    { key: "clarity", label: "Clarity", min: 0, max: 100 },
-    { key: "texture", label: "Texture", min: 0, max: 100 },
-    { key: "dehaze", label: "Dehaze", min: 0, max: 100 },
-    { key: "noiseLuma", label: "Noise Luma", min: 0, max: 100 },
-    { key: "noiseColor", label: "Noise Color", min: 0, max: 100 }
-  ]
-};
-
 const defaultState: EditorState = {
   basicTone: { exposure: 0, brightness: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
   toneCurve: {
@@ -340,12 +318,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [showSettingsMobile, setShowSettingsMobile] = useState(true);
   const [mobileEditorOpen, setMobileEditorOpen] = useState(true);
   const [mobileTool, setMobileTool] = useState<SectionKey>("basicTone");
-  const [mobileSliderIndex, setMobileSliderIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => typeof document === "undefined" ? true : document.visibilityState === "visible");
   const [isInteracting, setIsInteracting] = useState(false);
   const [previewQualityMode, setPreviewQualityMode] = useState<"interactive" | "final">("final");
   const [sheetState, setSheetState] = useState<"collapsed"|"half"|"full">("half");
+  const [canvasRenderNonce, setCanvasRenderNonce] = useState(0);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -377,8 +355,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const resetSection = (section: keyof EditorState) => patch((p) => ({ ...p, [section]: defaultState[section] }));
   const resetAll = () => { commit(defaultState); setLut3d(null); };
-  const toolbarBtnClass = "h-12 w-12 rounded-full border border-slate-400/70 bg-transparent p-0 text-slate-100 shadow-none hover:border-sky-400 hover:bg-slate-800/30";
-  const toolbarToggleBtnClass = "h-12 w-12 rounded-full border border-slate-400/70 bg-transparent p-0 text-slate-100 shadow-none hover:border-sky-400 hover:bg-slate-800/30";
+  const toolbarBtnClass = `h-11 w-11 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border border-transparent bg-transparent hover:bg-slate-800/50" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
+  const toolbarToggleBtnClass = `h-11 w-11 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border border-transparent bg-transparent hover:bg-slate-800/50" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
 
   const adjustmentActive = active && isDocumentVisible && (!isMobile || mobileEditorOpen);
 
@@ -420,11 +398,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const setSectionRef = (key: SectionKey) => (node: HTMLDivElement | null) => {
     sectionRefs.current[key] = node;
   };
-
-  const selectMobileTool = useCallback((key: SectionKey) => {
-    setMobileTool(key);
-    setMobileSliderIndex(0);
-  }, []);
 
   const closeMobileEditor = useCallback(() => {
     setMobileEditorOpen(false);
@@ -501,6 +474,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (preparedExportUrlRef.current) { URL.revokeObjectURL(preparedExportUrlRef.current); preparedExportUrlRef.current = null; }
     setPreparedExport(null);
     await loadImage(f);
+    setCanvasRenderNonce((v) => v + 1);
   }, [loadImage]);
 
   const clearLoadedImage = useCallback(() => {
@@ -519,6 +493,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     setFileSizePreview("-");
     setZoom("fit");
     setZoomLevel(1);
+    setCanvasRenderNonce((v) => v + 1);
   }, []);
 
   const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false, showBusy = false) => {
@@ -834,30 +809,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     state.export
   ]);
 
-  const activeMobileSliderGroup = MOBILE_SLIDER_GROUPS[mobileTool] ?? null;
-  const activeMobileSliderMeta = activeMobileSliderGroup?.[mobileSliderIndex] ?? null;
-
-  const renderMobileSliderRow = () => {
-    if (!activeMobileSliderMeta) return null;
-    if (mobileTool === "basicTone") {
-      const sliderKey = activeMobileSliderMeta.key as keyof EditorState["basicTone"];
-      const value = state.basicTone[sliderKey];
-      return <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-slate-300"><span>{activeMobileSliderMeta.label}</span><span>{value}</span></div>
-        <Slider min={activeMobileSliderMeta.min} max={activeMobileSliderMeta.max} step={activeMobileSliderMeta.step ?? 1} value={value} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [sliderKey]: Number(e.target.value) } }))} />
-      </div>;
-    }
-    if (mobileTool === "detail") {
-      const sliderKey = activeMobileSliderMeta.key as keyof EditorState["detail"];
-      const value = state.detail[sliderKey];
-      return <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-slate-300"><span>{activeMobileSliderMeta.label}</span><span>{value}</span></div>
-        <Slider min={activeMobileSliderMeta.min} max={activeMobileSliderMeta.max} step={activeMobileSliderMeta.step ?? 1} value={value} onChange={(e) => patch((p) => ({ ...p, detail: { ...p.detail, [sliderKey]: Number(e.target.value) } }))} />
-      </div>;
-    }
-    return null;
-  };
-
   return <>
     <Toast state={toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />
     <div className="relative h-[clamp(28rem,calc(100vh-10rem),82vh)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-2xl dark:border-slate-700">
@@ -871,12 +822,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           e.currentTarget.value = "";
         }}
       />
-      <div className="absolute inset-x-3 top-3 z-20 flex flex-col gap-2 sm:inset-x-4 sm:top-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-center gap-2">
+      <div className={`absolute top-3 z-20 ${isMobile ? "right-3 flex flex-col items-end gap-1.5" : "inset-x-3 flex flex-col gap-2 sm:inset-x-4 sm:top-4 sm:flex-row sm:items-start sm:justify-between"}`}>
+        <div className="flex items-center gap-1.5 pointer-events-auto">
           <Button variant="ghost" className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
         </div>
-        <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+        <div className={`pointer-events-auto ${isMobile ? "flex flex-col items-end gap-1.5" : "flex flex-wrap justify-start gap-2 sm:justify-end"}`}>
           <Button variant="ghost" className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
@@ -884,19 +835,9 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           <Button variant={showBefore ? "primary" : "ghost"} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
           <Button variant="ghost" className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
-        </div>
-      </div>
-      <div className="h-full w-full p-3 pb-36 md:p-4 md:pb-36">
-        <div
-          className={`relative flex h-full w-full items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 ${!file ? "cursor-pointer" : "cursor-default"}`}
-          onClick={() => {
-            if (!file) fileInputRef.current?.click();
-          }}
-        >
-          {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />}
           {file ? <button
             type="button"
-            className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-slate-300/70 bg-slate-950/85 text-xl leading-none text-white hover:border-sky-400"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300/70 bg-slate-950/85 text-3xl leading-none text-white hover:border-sky-400"
             onClick={(event) => {
               event.stopPropagation();
               clearLoadedImage();
@@ -906,6 +847,16 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           >
             ×
           </button> : null}
+        </div>
+      </div>
+      <div className="h-full w-full p-3 pb-36 md:p-4 md:pb-36">
+        <div
+          className={`relative flex h-full w-full items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 ${!file ? "cursor-pointer" : "cursor-default"}`}
+          onClick={() => {
+            if (!file) fileInputRef.current?.click();
+          }}
+        >
+          {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas key={canvasRenderNonce} ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />}
           {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
           {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
           {!file ? <div className="absolute bottom-3 left-3 rounded bg-slate-900/70 px-2 py-1 text-xs text-slate-200">Tap preview to upload</div> : <div className="absolute bottom-3 left-3 rounded bg-slate-900/70 px-2 py-1 text-xs text-slate-200">Use × to remove and upload a new image</div>}
@@ -913,8 +864,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       </div>
 
       {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className="absolute inset-x-4 bottom-20 z-30 max-h-[48vh] overflow-y-auto rounded-2xl border border-slate-500/70 bg-slate-900/82 p-3 shadow-xl backdrop-blur-md">
-        {activeMobileSliderGroup ? <div className="mb-2 flex gap-2 overflow-x-auto pb-2">{activeMobileSliderGroup.map((slider, idx) => <button key={slider.key} className={`rounded-full px-2.5 py-1 text-[11px] ${mobileSliderIndex === idx ? "bg-slate-700 text-white" : "bg-slate-800/70 text-slate-300"}`} onClick={() => setMobileSliderIndex(idx)}>{slider.label}</button>)}</div> : null}
-        {renderMobileSliderRow() ? <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/70 p-2">{renderMobileSliderRow()}</div> : null}
         <div className="space-y-4">
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
           {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={String(v)}><Slider min={k === "exposure" ? -5 : -100} max={k === "exposure" ? 5 : 100} step={k === "exposure" ? 0.1 : 1} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
@@ -1044,7 +993,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             key={item.key}
             type="button"
             aria-label={item.label}
-            className={`flex h-12 w-12 items-center justify-center rounded-xl border transition ${mobileTool === item.key && showSettingsMobile ? "border-sky-400 bg-sky-500/20 text-sky-200 shadow-[0_0_0_1px_rgba(56,189,248,.4)]" : "border-slate-500 bg-transparent text-slate-200 hover:border-slate-300"}`}
+            className={`flex h-12 w-12 items-center justify-center rounded-xl border transition ${mobileTool === item.key && showSettingsMobile ? "border-sky-300 bg-sky-500/10 text-sky-200" : "border-slate-500 bg-transparent text-slate-200 hover:border-slate-300"}`}
             onClick={() => {
               if (mobileTool === item.key) {
                 setShowSettingsMobile((v) => !v);
