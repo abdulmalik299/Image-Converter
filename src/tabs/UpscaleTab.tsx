@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
-import { Button, Card, Field, Input, Select, Slider } from "../components/ui";
+import { Button, Field, Input, Select, Slider } from "../components/ui";
 import { Toast, type ToastState } from "../components/Toast";
 import type { CommonRasterSettings } from "../lib/settings";
 
@@ -301,12 +301,12 @@ function ToolbarIcon({ kind }: { kind: "undo"|"redo"|"fit"|"actual"|"zoomOut"|"z
   const paths = {
     undo: <><path d="M9 7H4v5" /><path d="M4 12a8 8 0 1 0 2.5-5.8" /></>,
     redo: <><path d="M15 7h5v5" /><path d="M20 12a8 8 0 1 1-2.5-5.8" /></>,
-    fit: <><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M9 20H4v-5" /><path d="M15 20h5v-5" /></>,
-    actual: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 8h8v8H8z" /></>,
+    fit: <><rect x="4" y="4" width="16" height="16" rx="2.5" /><path d="M9 4v4H4" /><path d="M15 4v4h5" /><path d="M9 20v-4H4" /><path d="M15 20v-4h5" /></>,
+    actual: <><rect x="4" y="4" width="16" height="16" rx="2.5" /><path d="M8 8h8v8H8z" /><path d="M12 8v8M8 12h8" /></>,
     zoomOut: <><circle cx="11" cy="11" r="6.5" /><path d="M8.5 11h5" /><path d="m16 16 4 4" /></>,
     zoomIn: <><circle cx="11" cy="11" r="6.5" /><path d="M8.5 11h5" /><path d="M11 8.5v5" /><path d="m16 16 4 4" /></>,
-    compare: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M12 5v14" /></>,
-    hold: <><path d="M12 4v16" /><path d="M8 8h8" /><path d="M8 16h8" /></>,
+    compare: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M12 5v14" /><path d="M7 12h2m6 0h2" /></>,
+    hold: <><path d="M12 4v16" /><path d="M8 8h8" /><path d="M8 16h8" /><path d="M6 12h12" /></>,
     reset: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v5h5" /></>
   } as const;
   return <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
@@ -349,7 +349,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const histCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragPointRef = useRef<number | null>(null);
   const renderTokenRef = useRef(0);
@@ -378,6 +377,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const resetSection = (section: keyof EditorState) => patch((p) => ({ ...p, [section]: defaultState[section] }));
   const resetAll = () => { commit(defaultState); setLut3d(null); };
+  const toolbarBtnClass = "h-10 w-10 rounded-full border border-slate-600/70 bg-slate-900/85 p-0 text-slate-100 shadow-sm hover:border-sky-400 hover:bg-slate-800";
+  const toolbarToggleBtnClass = "h-10 w-10 rounded-full border border-slate-600/70 bg-slate-900/85 p-0 text-slate-100 shadow-sm hover:border-sky-400 hover:bg-slate-800";
 
   const adjustmentActive = active && isDocumentVisible && (!isMobile || mobileEditorOpen);
 
@@ -756,28 +757,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   useEffect(() => {
     if (!adjustmentActive) return;
-    const canvas = histCanvasRef.current;
-    const src = previewCanvasRef.current;
-    if (!canvas || !src) return;
-    const ctx = canvas.getContext("2d");
-    const sctx = src.getContext("2d", { willReadFrequently: true });
-    if (!ctx || !sctx) return;
-    const img = sctx.getImageData(0, 0, src.width, src.height).data;
-    const bins = new Array(256).fill(0);
-    for (let i = 0; i < img.length; i += 4) bins[Math.round(0.2126 * img[i] + 0.7152 * img[i + 1] + 0.0722 * img[i + 2])]++;
-    const max = Math.max(...bins, 1);
-    canvas.width = 320; canvas.height = 120;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#38bdf8";
-    bins.forEach((v, i) => {
-      const h = (v / max) * canvas.height;
-      ctx.fillRect((i / 256) * canvas.width, canvas.height - h, canvas.width / 256, h);
-    });
-  }, [state, adjustmentActive]);
-
-  useEffect(() => {
-    if (!adjustmentActive) return;
     const canvas = curveCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -861,7 +840,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   return <>
     <Toast state={toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />
-    <div className="relative h-[calc(100vh-14rem)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-2xl dark:border-slate-700">
+    <div className="relative h-[clamp(28rem,calc(100vh-10rem),82vh)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-2xl dark:border-slate-700">
       <input
         ref={fileInputRef}
         type="file"
@@ -873,39 +852,34 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         }}
       />
       <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
-        <Button variant="ghost" title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
-        <Button variant="ghost" title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
       </div>
       <div className="absolute right-4 top-4 z-20 flex flex-wrap justify-end gap-2">
-        <Button variant="ghost" title="Fit" aria-label="Fit" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
-        <Button variant="ghost" title="100%" aria-label="100%" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
-        <Button variant="ghost" title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
-        <Button variant="ghost" title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></Button>
-        <Button variant={showBefore ? "primary" : "ghost"} title="Before/After" aria-label="Before/After" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
-        <Button variant="ghost" title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
-        <Button variant="ghost" title="Reset adjustments" aria-label="Reset adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></Button>
+        <Button variant={showBefore ? "primary" : "ghost"} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
+        <Button variant="ghost" className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
       </div>
-      <div className="h-full w-full p-4 pb-36">
+      <div className="h-full w-full p-3 pb-36 md:p-4 md:pb-36">
         <div
-          className="relative flex h-full w-full cursor-pointer items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-slate-950/95"
+          className="relative flex h-full w-full cursor-pointer items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"
           onClick={() => fileInputRef.current?.click()}
         >
-          {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="max-h-full max-w-full rounded-lg transition-transform" />}
+          {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />}
           {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
           {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
           <div className="absolute bottom-3 left-3 rounded bg-slate-900/70 px-2 py-1 text-xs text-slate-200">Tap preview to upload/replace</div>
         </div>
       </div>
 
-      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className="absolute inset-x-4 bottom-20 z-30 max-h-[44vh] overflow-y-auto rounded-2xl border border-slate-600/70 bg-slate-900/78 p-3 shadow-xl backdrop-blur-md">
+      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className="absolute inset-x-4 bottom-20 z-30 max-h-[48vh] overflow-y-auto rounded-2xl border border-slate-500/70 bg-slate-900/82 p-3 shadow-xl backdrop-blur-md">
         {activeMobileSliderGroup ? <div className="mb-2 flex gap-2 overflow-x-auto pb-2">{activeMobileSliderGroup.map((slider, idx) => <button key={slider.key} className={`rounded-full px-2.5 py-1 text-[11px] ${mobileSliderIndex === idx ? "bg-slate-700 text-white" : "bg-slate-800/70 text-slate-300"}`} onClick={() => setMobileSliderIndex(idx)}>{slider.label}</button>)}</div> : null}
         {renderMobileSliderRow() ? <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900/70 p-2">{renderMobileSliderRow()}</div> : null}
         <div className="space-y-4">
-        <Card title="Analysis">
-          <Field label="Histogram"><canvas ref={histCanvasRef} className="w-full rounded-lg border border-slate-700" /></Field>
-          <p className="mt-2 text-xs text-slate-400">Realtime histogram and color tools help build a professional-grade editing workflow.</p>
-        </Card>
-
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
           {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={String(v)}><Slider min={k === "exposure" ? -5 : -100} max={k === "exposure" ? 5 : 100} step={k === "exposure" ? 0.1 : 1} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
         </Collapsible></div> : null}
