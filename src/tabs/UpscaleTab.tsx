@@ -292,7 +292,16 @@ function ToolbarIcon({ kind }: { kind: "undo"|"redo"|"fit"|"actual"|"zoomOut"|"z
     hold: <><path d="M12 4v16" /><path d="M8 8h8" /><path d="M8 16h8" /><path d="M6 12h12" /></>,
     reset: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v5h5" /></>
   } as const;
-  return <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
+  return <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
+}
+
+function ToolbarButton({ active = false, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+  return (
+    <button
+      {...props}
+      className={`inline-flex h-11 w-11 items-center justify-center rounded-full text-slate-100 transition hover:text-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-400/60 disabled:cursor-not-allowed disabled:opacity-45 ${active ? "text-sky-300" : ""} ${className}`}
+    />
+  );
 }
 
 function Collapsible({ title, defaultOpen = true, right, children, icon }: { title: string; defaultOpen?: boolean; right?: React.ReactNode; children: React.ReactNode; icon: React.ReactNode }) {
@@ -360,8 +369,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   const resetSection = (section: keyof EditorState) => patch((p) => ({ ...p, [section]: defaultState[section] }));
   const resetAll = () => { commit(defaultState); setLut3d(null); };
-  const toolbarBtnClass = `h-10 w-10 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border-0 bg-transparent ring-0 hover:bg-slate-800/45" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
-  const toolbarToggleBtnClass = `h-10 w-10 rounded-full p-0 text-slate-100 shadow-none ${isMobile ? "border-0 bg-transparent ring-0 hover:bg-slate-800/45" : "border border-slate-400/70 bg-transparent hover:border-sky-400 hover:bg-slate-800/30"}`;
+  const toolbarBtnClass = "";
+  const toolbarToggleBtnClass = "";
   const mobileControlsClass = "pointer-events-auto absolute left-3 top-3 z-20 flex flex-wrap items-center gap-1.5";
 
   const adjustmentActive = active && isDocumentVisible && (!isMobile || mobileEditorOpen);
@@ -727,15 +736,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   }, [isMobile]);
 
   useEffect(() => {
-    if (!isMobile || !mobileEditorOpen) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [isMobile, mobileEditorOpen]);
-
-  useEffect(() => {
     if (adjustmentActive) return;
     renderTokenRef.current += 1;
     setBusy(false);
@@ -836,15 +836,15 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       />
       {isMobile ? <>
       <div className={mobileControlsClass}>
-        <Button variant="ghost" className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></Button>
-        <Button variant={showBefore ? "primary" : "ghost"} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
-        <Button variant="ghost" className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
+        <ToolbarButton className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></ToolbarButton>
+        <ToolbarButton active={showBefore} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></ToolbarButton>
+        <ToolbarButton className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></ToolbarButton>
       </div>
       {file ? <button
         type="button"
@@ -860,17 +860,17 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       </button> : null}
       </> : <div className="absolute inset-x-3 top-3 z-20 flex flex-col gap-2 sm:inset-x-4 sm:top-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-1.5 pointer-events-auto">
-          <Button variant="ghost" className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></Button>
-          <Button variant="ghost" className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></Button>
+          <ToolbarButton className={toolbarBtnClass} title="Undo" aria-label="Undo" disabled={!past.length} onClick={undo}><ToolbarIcon kind="undo" /></ToolbarButton>
+          <ToolbarButton className={toolbarBtnClass} title="Redo" aria-label="Redo" disabled={!future.length} onClick={redo}><ToolbarIcon kind="redo" /></ToolbarButton>
         </div>
         <div className="pointer-events-auto flex flex-wrap justify-start gap-2 sm:justify-end">
-          <Button variant="ghost" className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></Button>
-          <Button variant="ghost" className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></Button>
-          <Button variant="ghost" className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></Button>
-          <Button variant="ghost" className={toolbarBtnClass} title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></Button>
-          <Button variant={showBefore ? "primary" : "ghost"} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></Button>
-          <Button variant="ghost" className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></Button>
-          <Button variant="ghost" className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></Button>
+          <ToolbarButton className={toolbarBtnClass} title="Fit preview" aria-label="Fit preview" onClick={() => { setZoom("fit"); setZoomLevel(1); }}><ToolbarIcon kind="fit" /></ToolbarButton>
+          <ToolbarButton className={toolbarBtnClass} title="Actual size" aria-label="Actual size" onClick={() => { setZoom("100"); setZoomLevel(1); }}><ToolbarIcon kind="actual" /></ToolbarButton>
+          <ToolbarButton className={toolbarBtnClass} title="Zoom out" aria-label="Zoom out" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.max(0.25, z - 0.1)); }}><ToolbarIcon kind="zoomOut" /></ToolbarButton>
+          <ToolbarButton className={toolbarBtnClass} title="Zoom in" aria-label="Zoom in" onClick={() => { setZoom("custom"); setZoomLevel((z) => Math.min(3, z + 0.1)); }}><ToolbarIcon kind="zoomIn" /></ToolbarButton>
+          <ToolbarButton active={showBefore} className={toolbarToggleBtnClass} title="Before/after compare" aria-label="Before/after compare" onClick={() => setShowBefore((v) => !v)}><ToolbarIcon kind="compare" /></ToolbarButton>
+          <ToolbarButton className={toolbarBtnClass} title="Hold original" aria-label="Hold original" onMouseDown={() => setHoldBefore(true)} onMouseUp={() => setHoldBefore(false)} onMouseLeave={() => setHoldBefore(false)}><ToolbarIcon kind="hold" /></ToolbarButton>
+          <ToolbarButton className={toolbarBtnClass} title="Reset all adjustments" aria-label="Reset all adjustments" onClick={resetAll}><ToolbarIcon kind="reset" /></ToolbarButton>
           {file ? <button
             type="button"
             className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300/70 bg-slate-950/85 text-3xl leading-none text-white hover:border-sky-400"
