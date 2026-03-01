@@ -1,13 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#60a5fa"/>
-      <stop offset="1" stop-color="#22c55e"/>
+    <linearGradient id="beamF" x1="12" y1="50" x2="52" y2="18" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="lensF" x1="20" y1="20" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#2563EB"/>
     </linearGradient>
   </defs>
-  <rect x="6" y="6" width="52" height="52" rx="14" fill="#0b1220"/>
-  <path d="M18 26h28" stroke="#93c5fd" stroke-width="5" stroke-linecap="round"/>
-  <path d="M18 40c9 6 19 6 28 0" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="20" cy="26" r="3" fill="#22c55e"/>
-  <circle cx="44" cy="26" r="3" fill="#60a5fa"/>
+  <path d="M12 48L29 31" stroke="url(#beamF)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M27 33L38 22L49 33" stroke="url(#beamF)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="42" cy="42" r="12" fill="url(#lensF)"/>
+  <circle cx="42" cy="42" r="7" stroke="#E0F2FE" stroke-width="2.5"/>
+  <path d="M37 42H47" stroke="#E0F2FE" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M42 37V47" stroke="#E0F2FE" stroke-width="2.5" stroke-linecap="round"/>
 </svg>

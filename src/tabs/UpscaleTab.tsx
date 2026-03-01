@@ -89,6 +89,7 @@ const PREVIEW_MAX_DIMENSION = 1920;
 const INTERACTIVE_PREVIEW_MAX_DIMENSION = 960;
 const INTERACTIVE_PREVIEW_DELAY_MS = 16;
 const FINAL_PREVIEW_DELAY_MS = 26;
+const PREVIEW_TARGET_BYTES = 200 * 1024;
 
 const GEOMETRY_RATIO_PRESETS = [
   { key: "free", label: "Custom" },
@@ -455,6 +456,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const cropGestureRef = useRef<{ mode: "move" | "nw" | "ne" | "sw" | "se"; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
   const cropGestureFrameRef = useRef<number | null>(null);
+  const bodyScrollRestoreRef = useRef<{ overflow: string; touchAction: string } | null>(null);
   const pendingCropRef = useRef<{ cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
   const [preparedExport, setPreparedExport] = useState<{ url: string; name: string; size: string } | null>(null);
   const sectionRefs = useRef<Record<SectionKey, HTMLDivElement | null>>({
@@ -588,6 +590,14 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (canvasRect.width < 2 || canvasRect.height < 2) return;
 
     onSliderInteractionStart();
+    if (!bodyScrollRestoreRef.current) {
+      bodyScrollRestoreRef.current = {
+        overflow: document.body.style.overflow,
+        touchAction: document.body.style.touchAction
+      };
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
+    }
     cropGestureRef.current = {
       mode,
       startX: event.clientX,
@@ -658,6 +668,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         cropGestureFrameRef.current = null;
       }
       onSliderInteractionEnd();
+      if (bodyScrollRestoreRef.current) {
+        document.body.style.overflow = bodyScrollRestoreRef.current.overflow;
+        document.body.style.touchAction = bodyScrollRestoreRef.current.touchAction;
+        bodyScrollRestoreRef.current = null;
+      }
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
@@ -713,15 +728,48 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
     const previewScale = Math.min(1, PREVIEW_MAX_DIMENSION / Math.max(bmp.width, bmp.height));
     const previewCanvas = previewSourceCanvasRef.current || document.createElement("canvas");
-    previewCanvas.width = Math.max(1, Math.round(bmp.width * previewScale));
-    previewCanvas.height = Math.max(1, Math.round(bmp.height * previewScale));
+    let targetW = Math.max(1, Math.round(bmp.width * previewScale));
+    let targetH = Math.max(1, Math.round(bmp.height * previewScale));
+    let quality = 0.84;
+    let bestBitmap: ImageBitmap | null = null;
+
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const workingCanvas = document.createElement("canvas");
+      workingCanvas.width = targetW;
+      workingCanvas.height = targetH;
+      const workingCtx = workingCanvas.getContext("2d");
+      if (!workingCtx) break;
+      workingCtx.imageSmoothingEnabled = true;
+      workingCtx.imageSmoothingQuality = "high";
+      workingCtx.drawImage(bmp, 0, 0, targetW, targetH);
+
+      const blob = await new Promise<Blob | null>((resolve) => workingCanvas.toBlob((b) => resolve(b), "image/jpeg", quality));
+      if (!blob) break;
+
+      if (bestBitmap) bestBitmap.close();
+      bestBitmap = await createImageBitmap(blob);
+
+      if (blob.size <= PREVIEW_TARGET_BYTES) break;
+
+      if (quality > 0.55) quality -= 0.1;
+      else {
+        targetW = Math.max(1, Math.round(targetW * 0.86));
+        targetH = Math.max(1, Math.round(targetH * 0.86));
+      }
+    }
+
+    previewCanvas.width = bestBitmap ? bestBitmap.width : targetW;
+    previewCanvas.height = bestBitmap ? bestBitmap.height : targetH;
     const previewCtx = previewCanvas.getContext("2d");
     if (previewCtx) {
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
       previewCtx.imageSmoothingEnabled = true;
       previewCtx.imageSmoothingQuality = "high";
-      previewCtx.drawImage(bmp, 0, 0, previewCanvas.width, previewCanvas.height);
+      if (bestBitmap) previewCtx.drawImage(bestBitmap, 0, 0);
+      else previewCtx.drawImage(bmp, 0, 0, previewCanvas.width, previewCanvas.height);
       previewSourceCanvasRef.current = previewCanvas;
     }
+    if (bestBitmap) bestBitmap.close();
 
     bmp.close();
     patch((p) => ({
@@ -1100,6 +1148,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
     if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
     if (cropGestureFrameRef.current !== null) window.cancelAnimationFrame(cropGestureFrameRef.current);
+    if (bodyScrollRestoreRef.current) {
+      document.body.style.overflow = bodyScrollRestoreRef.current.overflow;
+      document.body.style.touchAction = bodyScrollRestoreRef.current.touchAction;
+      bodyScrollRestoreRef.current = null;
+    }
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
   }, []);
@@ -1199,7 +1252,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             <canvas key={canvasRenderNonce} ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />
             {mobileTool === "geometry" && !showBefore && !holdBefore ? <>
               <div
-                className="absolute cursor-move rounded-lg border border-white/25"
+                className="absolute cursor-move rounded-lg border border-white/25 touch-none"
                 onPointerDown={(e) => startCropGesture("move", e)}
                 style={{
                   left: `${state.geometry.cropX}%`,
@@ -1221,6 +1274,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
                     type="button"
                     className={`absolute h-4 w-4 rounded-full border border-white bg-slate-900/80 ${posClass}`}
                     onPointerDown={(e) => startCropGesture(corner as "nw" | "ne" | "sw" | "se", e)}
+                    style={{ touchAction: "none" }}
                     aria-label={`Resize crop ${corner}`}
                   />;
                 })}

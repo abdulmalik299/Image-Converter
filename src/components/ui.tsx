@@ -2,16 +2,23 @@ import { PropsWithChildren } from "react";
 
 function HeaderGlyph() {
   return (
-    <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
+    <svg viewBox="0 0 64 64" className="h-10 w-10" aria-hidden="true" fill="none">
       <defs>
-        <linearGradient id="logoG" x1="10" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+        <linearGradient id="markBeam" x1="12" y1="48" x2="52" y2="14" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="#22d3ee" />
+          <stop offset="1" stopColor="#6366f1" />
+        </linearGradient>
+        <linearGradient id="markLens" x1="20" y1="22" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#38bdf8" />
           <stop offset="1" stopColor="#2563eb" />
         </linearGradient>
       </defs>
-      <rect x="7" y="7" width="50" height="50" rx="13" fill="url(#logoG)" />
-      <path d="M16 42 25 31l8 7 14-16" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="46" cy="22" r="5" fill="#bfdbfe" />
+      <path d="M14 48 31 30" stroke="url(#markBeam)" strokeWidth="5" strokeLinecap="round" />
+      <path d="M29 32 40 21l11 11" stroke="url(#markBeam)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="42" cy="42" r="12" fill="url(#markLens)" />
+      <circle cx="42" cy="42" r="7" stroke="#e0f2fe" strokeWidth="2.5" />
+      <path d="M37 42h10" stroke="#e0f2fe" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M42 37v10" stroke="#e0f2fe" strokeWidth="2.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -32,7 +39,7 @@ export function AppShell({ children, themeControl }: PropsWithChildren<{ themeCo
           <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-300 via-blue-400 to-indigo-300 dark:from-sky-500/70 dark:via-indigo-500/70 dark:to-violet-500/70" />
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div className="flex items-center gap-4">
-              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-lg shadow-sky-200/60 ring-1 ring-sky-100 flex items-center justify-center">
+              <div className="flex h-14 w-14 items-center justify-center">
                 <HeaderGlyph />
               </div>
               <div>

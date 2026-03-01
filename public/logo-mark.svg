@@ -1,11 +1,18 @@
 <svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#bg)"/>
-  <path d="M34 84L52 64L66 76L90 46" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="92" cy="44" r="10" fill="#BAE6FD"/>
   <defs>
-    <linearGradient id="bg" x1="14" y1="16" x2="112" y2="120" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0EA5E9"/>
+    <linearGradient id="beam" x1="22" y1="96" x2="104" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="42" y1="40" x2="90" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
       <stop offset="1" stop-color="#2563EB"/>
     </linearGradient>
   </defs>
+  <path d="M26 94L58 61" stroke="url(#beam)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M56 64L76 44L97 65" stroke="url(#beam)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="82" cy="82" r="24" fill="url(#lens)"/>
+  <circle cx="82" cy="82" r="14" stroke="#E0F2FE" stroke-width="5"/>
+  <path d="M72 82H92" stroke="#E0F2FE" stroke-width="5" stroke-linecap="round"/>
+  <path d="M82 72V92" stroke="#E0F2FE" stroke-width="5" stroke-linecap="round"/>
 </svg>
