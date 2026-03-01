@@ -50,6 +50,7 @@ type EditorState = {
     lensDistortion: number;
     vignette: number;
     smoothingQuality: "low" | "medium" | "high";
+    ratioPreset: GeometryRatioPreset;
   };
   advanced: {
     gamma: number;
@@ -85,6 +86,20 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
 
 const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
 const PREVIEW_MAX_DIMENSION = 2560;
+const INTERACTIVE_PREVIEW_MAX_DIMENSION = 1280;
+const INTERACTIVE_PREVIEW_DELAY_MS = 16;
+const FINAL_PREVIEW_DELAY_MS = 26;
+
+const GEOMETRY_RATIO_PRESETS = [
+  { key: "free", label: "Custom" },
+  { key: "original", label: "Original" },
+  { key: "1:1", label: "1:1" },
+  { key: "3:4", label: "3:4" },
+  { key: "4:5", label: "4:5" },
+  { key: "9:16", label: "9:16" },
+  { key: "16:9", label: "16:9" }
+] as const;
+type GeometryRatioPreset = (typeof GEOMETRY_RATIO_PRESETS)[number]["key"];
 
 function applyColorSpaceTransform(r: number, g: number, b: number, colorSpace: EditorState["export"]["colorSpace"]) {
   if (colorSpace === "Display-P3") return { r: clamp(r * 1.03), g: clamp(g * 1.01), b: clamp(b * 1.06) };
@@ -130,7 +145,8 @@ const defaultState: EditorState = {
     perspectiveH: 0,
     lensDistortion: 0,
     vignette: 0,
-    smoothingQuality: "high"
+    smoothingQuality: "high",
+    ratioPreset: "original"
   },
   advanced: {
     gamma: 1,
@@ -282,6 +298,17 @@ function formatControlValue(value: number, digits = 1) {
   return Number.isFinite(value) ? value.toFixed(digits) : "0";
 }
 
+function clampPercent(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseRatioPreset(preset: GeometryRatioPreset): number | null {
+  if (preset === "free" || preset === "original") return null;
+  const [w, h] = preset.split(":").map(Number);
+  if (!w || !h) return null;
+  return w / h;
+}
+
 function sampleNeighborhood(data: Uint8ClampedArray, w: number, h: number, x: number, y: number, radius: number) {
   let r = 0, g = 0, b = 0, c = 0;
   for (let yy = -radius; yy <= radius; yy++) {
@@ -392,6 +419,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const settleTimerRef = useRef<number | null>(null);
   const previewTimerRef = useRef<number | null>(null);
   const preparedExportUrlRef = useRef<string | null>(null);
+  const previewWrapRef = useRef<HTMLDivElement | null>(null);
+  const cropGestureRef = useRef<{ mode: "move" | "nw" | "ne" | "sw" | "se"; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
   const [preparedExport, setPreparedExport] = useState<{ url: string; name: string; size: string } | null>(null);
   const sectionRefs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     basicTone: null,
@@ -454,6 +483,166 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const setSectionRef = (key: SectionKey) => (node: HTMLDivElement | null) => {
     sectionRefs.current[key] = node;
   };
+
+  const applyRatioPreset = useCallback((preset: GeometryRatioPreset) => {
+    patch((prev) => {
+      const nextGeometry = { ...prev.geometry, ratioPreset: preset };
+      const ratio = preset === "original"
+        ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
+        : parseRatioPreset(preset);
+      if (!ratio) return { ...prev, geometry: nextGeometry };
+
+      const currentW = Math.max(1, nextGeometry.cropW);
+      const currentH = Math.max(1, nextGeometry.cropH);
+      const currentRatio = currentW / currentH;
+      let cropW = currentW;
+      let cropH = currentH;
+
+      if (currentRatio > ratio) cropW = cropH * ratio;
+      else cropH = cropW / ratio;
+
+      cropW = clampPercent(cropW, 5, 100);
+      cropH = clampPercent(cropH, 5, 100);
+
+      return {
+        ...prev,
+        geometry: {
+          ...nextGeometry,
+          cropW,
+          cropH,
+          cropX: clampPercent(nextGeometry.cropX, 0, 100 - cropW),
+          cropY: clampPercent(nextGeometry.cropY, 0, 100 - cropH)
+        }
+      };
+    });
+  }, [patch]);
+
+  const patchGeometryCrop = useCallback((key: "cropX" | "cropY" | "cropW" | "cropH", rawValue: number) => {
+    patch((prev) => {
+      const g = prev.geometry;
+      const ratio = g.ratioPreset === "original"
+        ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
+        : parseRatioPreset(g.ratioPreset);
+      let cropX = g.cropX;
+      let cropY = g.cropY;
+      let cropW = g.cropW;
+      let cropH = g.cropH;
+
+      if (key === "cropX") cropX = clampPercent(rawValue, 0, 100 - cropW);
+      if (key === "cropY") cropY = clampPercent(rawValue, 0, 100 - cropH);
+
+      if (key === "cropW") {
+        cropW = clampPercent(rawValue, 5, 100);
+        if (ratio) cropH = clampPercent(cropW / ratio, 5, 100);
+        cropX = clampPercent(cropX, 0, 100 - cropW);
+        cropY = clampPercent(cropY, 0, 100 - cropH);
+      }
+
+      if (key === "cropH") {
+        cropH = clampPercent(rawValue, 5, 100);
+        if (ratio) cropW = clampPercent(cropH * ratio, 5, 100);
+        cropX = clampPercent(cropX, 0, 100 - cropW);
+        cropY = clampPercent(cropY, 0, 100 - cropH);
+      }
+
+      return { ...prev, geometry: { ...g, cropX, cropY, cropW, cropH } };
+    });
+  }, [patch]);
+
+  const nudgeGeometryRotate = useCallback((amount: number) => {
+    patch((prev) => ({
+      ...prev,
+      geometry: {
+        ...prev.geometry,
+        rotate: clampPercent(prev.geometry.rotate + amount, -180, 180)
+      }
+    }));
+  }, [patch]);
+
+  const startCropGesture = useCallback((mode: "move" | "nw" | "ne" | "sw" | "se", event: ReactPointerEvent<HTMLElement>) => {
+    if (!file || mobileTool !== "geometry" || !previewCanvasRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const canvasRect = previewCanvasRef.current.getBoundingClientRect();
+    if (canvasRect.width < 2 || canvasRect.height < 2) return;
+
+    onSliderInteractionStart();
+    cropGestureRef.current = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      cropX: state.geometry.cropX,
+      cropY: state.geometry.cropY,
+      cropW: state.geometry.cropW,
+      cropH: state.geometry.cropH
+    };
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const gesture = cropGestureRef.current;
+      const canvas = previewCanvasRef.current;
+      if (!gesture || !canvas) return;
+      moveEvent.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const dxPct = ((moveEvent.clientX - gesture.startX) / Math.max(1, rect.width)) * 100;
+      const dyPct = ((moveEvent.clientY - gesture.startY) / Math.max(1, rect.height)) * 100;
+
+      let cropX = gesture.cropX;
+      let cropY = gesture.cropY;
+      let cropW = gesture.cropW;
+      let cropH = gesture.cropH;
+      const minSize = 5;
+
+      if (gesture.mode === "move") {
+        cropX = clampPercent(gesture.cropX + dxPct, 0, 100 - cropW);
+        cropY = clampPercent(gesture.cropY + dyPct, 0, 100 - cropH);
+      } else {
+        if (gesture.mode === "nw" || gesture.mode === "sw") {
+          cropX = clampPercent(gesture.cropX + dxPct, 0, gesture.cropX + gesture.cropW - minSize);
+          cropW = clampPercent(gesture.cropW - (cropX - gesture.cropX), minSize, 100);
+        }
+        if (gesture.mode === "ne" || gesture.mode === "se") {
+          cropW = clampPercent(gesture.cropW + dxPct, minSize, 100 - gesture.cropX);
+        }
+        if (gesture.mode === "nw" || gesture.mode === "ne") {
+          cropY = clampPercent(gesture.cropY + dyPct, 0, gesture.cropY + gesture.cropH - minSize);
+          cropH = clampPercent(gesture.cropH - (cropY - gesture.cropY), minSize, 100);
+        }
+        if (gesture.mode === "sw" || gesture.mode === "se") {
+          cropH = clampPercent(gesture.cropH + dyPct, minSize, 100 - gesture.cropY);
+        }
+
+        if (state.geometry.ratioPreset !== "free") {
+          const ratio = state.geometry.ratioPreset === "original"
+            ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
+            : parseRatioPreset(state.geometry.ratioPreset);
+          if (ratio) {
+            if (gesture.mode === "nw" || gesture.mode === "ne") {
+              cropW = clampPercent(cropH * ratio, minSize, 100 - cropX);
+            } else {
+              cropH = clampPercent(cropW / ratio, minSize, 100 - cropY);
+            }
+          }
+        }
+
+        cropX = clampPercent(cropX, 0, 100 - cropW);
+        cropY = clampPercent(cropY, 0, 100 - cropH);
+      }
+
+      patch((prev) => ({ ...prev, geometry: { ...prev.geometry, cropX, cropY, cropW, cropH } }));
+    };
+
+    const onUp = () => {
+      cropGestureRef.current = null;
+      onSliderInteractionEnd();
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, [file, mobileTool, onSliderInteractionEnd, onSliderInteractionStart, patch, state.geometry]);
 
   const closeMobileEditor = useCallback(() => {
     setMobileEditorOpen(false);
@@ -578,7 +767,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       : Math.max(1, Math.round((g.resizeH || Math.max(1, Math.round((g.cropH / 100) * originalSource.height))) * previewScaleY));
     const outW = forExport ? targetW : Math.min(targetW, src.width);
     const outH = forExport ? targetH : Math.min(targetH, src.height);
-    const renderScale = !forExport && lightweight ? 0.72 : 1;
+    const interactiveMaxScale = !forExport && lightweight ? Math.min(1, INTERACTIVE_PREVIEW_MAX_DIMENSION / Math.max(outW, outH)) : 1;
+    const renderScale = !forExport && lightweight ? Math.min(0.68, interactiveMaxScale) : 1;
     const workW = Math.max(1, Math.round(outW * renderScale));
     const workH = Math.max(1, Math.round(outH * renderScale));
 
@@ -680,7 +870,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     }
 
     const chromaSmoothStrength = Math.min(1, (Math.abs(state.color.vibrance) + Math.abs(state.color.saturation)) / 280);
-    if (chromaSmoothStrength > 0.06 && workW > 2 && workH > 2) {
+    if (!lightweight && chromaSmoothStrength > 0.06 && workW > 2 && workH > 2) {
       const chromaSource = new Uint8ClampedArray(d);
       const chromaMix = 0.12 + chromaSmoothStrength * 0.2;
       const luma = (rr: number, gg: number, bb: number) => 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
@@ -710,7 +900,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     }
 
     const blurred = new Uint8ClampedArray(d);
-    if (state.detail.sharpenAmount > 0 || state.detail.noiseLuma > 0 || state.detail.noiseColor > 0 || state.detail.clarity !== 0 || state.detail.texture !== 0 || state.detail.dehaze !== 0 || state.advanced.highPass > 0 || state.advanced.edgePreview) {
+    if (!lightweight && (state.detail.sharpenAmount > 0 || state.detail.noiseLuma > 0 || state.detail.noiseColor > 0 || state.detail.clarity !== 0 || state.detail.texture !== 0 || state.detail.dehaze !== 0 || state.advanced.highPass > 0 || state.advanced.edgePreview)) {
       const rad = Math.max(1, Math.round(state.detail.sharpenRadius));
       for (let y = 0; y < workH; y++) {
         for (let x = 0; x < workW; x++) {
@@ -763,7 +953,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       }
     }
 
-    if (lut3d) {
+    if (lut3d && !lightweight) {
       for (let i = 0; i < d.length; i += 4) {
         const r = d[i] / 255, g1 = d[i + 1] / 255, b = d[i + 2] / 255;
         const idx = ((Math.round(r * (lut3d.size - 1)) * lut3d.size + Math.round(g1 * (lut3d.size - 1))) * lut3d.size + Math.round(b * (lut3d.size - 1))) * 3;
@@ -787,7 +977,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (token !== renderTokenRef.current) return;
     ctx.putImageData(image, 0, 0);
     target.width = outW; target.height = outH;
-    target.getContext("2d")?.drawImage(temp, 0, 0, outW, outH);
+    const targetCtx = target.getContext("2d");
+    if (targetCtx) {
+      targetCtx.imageSmoothingEnabled = true;
+      targetCtx.imageSmoothingQuality = lightweight ? "medium" : g.smoothingQuality;
+      targetCtx.drawImage(temp, 0, 0, outW, outH);
+    }
     setBusy(false);
   }, [lut3d, state]);
 
@@ -840,7 +1035,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         const blob = await new Promise<Blob | null>((r) => previewCanvasRef.current?.toBlob((b) => r(b), "image/jpeg", state.export.quality / 100));
         setFileSizePreview(blob ? `${(blob.size / 1024).toFixed(1)} KB` : "-");
       });
-    }, isInteracting ? 90 : 35);
+    }, isInteracting ? INTERACTIVE_PREVIEW_DELAY_MS : FINAL_PREVIEW_DELAY_MS);
     return () => {
       if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
     };
@@ -975,15 +1170,46 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             if (!file) fileInputRef.current?.click();
           }}
         >
-          {!file ? <span className="text-slate-400 text-sm">Load an image to begin editing.</span> : <canvas key={canvasRenderNonce} ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />}
+          {!file ? <span className="text-slate-500 dark:text-slate-400 text-sm">Load an image to begin editing.</span> : <div ref={previewWrapRef} className="relative inline-block">
+            <canvas key={canvasRenderNonce} ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />
+            {mobileTool === "geometry" && !showBefore && !holdBefore ? <>
+              <div
+                className="absolute cursor-move rounded-lg border border-white/25"
+                onPointerDown={(e) => startCropGesture("move", e)}
+                style={{
+                  left: `${state.geometry.cropX}%`,
+                  top: `${state.geometry.cropY}%`,
+                  width: `${state.geometry.cropW}%`,
+                  height: `${state.geometry.cropH}%`,
+                  boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.45)"
+                }}
+              >
+                <div className="absolute inset-0 border border-white/80" />
+                <div className="absolute left-1/3 right-1/3 top-0 h-px bg-white/40" />
+                <div className="absolute left-1/3 right-1/3 bottom-0 h-px bg-white/40" />
+                <div className="absolute top-1/3 bottom-1/3 left-0 w-px bg-white/40" />
+                <div className="absolute top-1/3 bottom-1/3 right-0 w-px bg-white/40" />
+                {["nw", "ne", "sw", "se"].map((corner) => {
+                  const posClass = corner === "nw" ? "-left-2 -top-2" : corner === "ne" ? "-right-2 -top-2" : corner === "sw" ? "-left-2 -bottom-2" : "-right-2 -bottom-2";
+                  return <button
+                    key={corner}
+                    type="button"
+                    className={`absolute h-4 w-4 rounded-full border border-white bg-slate-900/80 ${posClass}`}
+                    onPointerDown={(e) => startCropGesture(corner as "nw" | "ne" | "sw" | "se", e)}
+                    aria-label={`Resize crop ${corner}`}
+                  />;
+                })}
+              </div>
+            </> : null}
+          </div>}
           {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
           {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
-          {!file ? <div className="absolute bottom-3 left-3 rounded bg-slate-900/70 px-2 py-1 text-xs text-slate-200">Tap preview to upload</div> : <div className="absolute bottom-3 left-3 rounded bg-slate-900/70 px-2 py-1 text-xs text-slate-200">Use × to remove and upload a new image</div>}
+          {!file ? <div className="absolute bottom-3 left-3 rounded bg-white/80 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200 px-2 py-1 text-xs">Tap preview to upload</div> : <div className="absolute bottom-3 left-3 rounded bg-white/80 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200 px-2 py-1 text-xs">Use × to remove and upload a new image</div>}
         </div>
       </div>
 
-      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className={`absolute inset-x-6 bottom-20 z-30 overflow-y-auto rounded-2xl border border-slate-500/70 bg-slate-900/82 p-2 shadow-xl backdrop-blur-md sm:inset-x-4 sm:bottom-20 sm:p-3 ${sheetState === "collapsed" ? "max-h-[14vh]" : sheetState === "full" ? "max-h-[42vh]" : "max-h-[26vh] sm:max-h-[40vh]"}`}>
-        <div className="mb-2 flex items-center justify-center"><button type="button" aria-label="Resize settings panel" onPointerDown={onSheetHandlePointerDown} className="h-1.5 w-14 rounded-full bg-slate-400/60 hover:bg-slate-300/80" /></div>
+      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className={`absolute inset-x-6 bottom-20 z-30 overflow-y-auto rounded-2xl border border-slate-300/70 bg-white/90 text-slate-800 shadow-xl backdrop-blur-md dark:border-slate-500/70 dark:bg-slate-900/82 dark:text-slate-100 sm:inset-x-4 sm:bottom-20 sm:p-3 p-2 ${sheetState === "collapsed" ? "max-h-[14vh]" : sheetState === "full" ? "max-h-[42vh]" : "max-h-[26vh] sm:max-h-[40vh]"}`}>
+        <div className="mb-2 flex items-center justify-center"><button type="button" aria-label="Resize settings panel" onPointerDown={onSheetHandlePointerDown} className="h-1.5 w-14 rounded-full bg-slate-400/70 hover:bg-slate-500/80 dark:bg-slate-400/60 dark:hover:bg-slate-300/80" /></div>
         <div className="space-y-4">
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
           {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={formatControlValue(v, k === "exposure" ? 2 : 1)}><Slider min={k === "exposure" ? -8 : -150} max={k === "exposure" ? 8 : 150} step={k === "exposure" ? 0.05 : 0.5} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
@@ -1060,14 +1286,34 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         </Collapsible></div> : null}
 
         {(mobileTool === "geometry") ? <div ref={setSectionRef("geometry")}><Collapsible icon={<SectionIcon kind="geometry" />} title="Geometry" right={<Button variant="ghost" onClick={() => resetSection("geometry")}>Reset</Button>}>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Crop X"><Slider min={0} max={90} value={state.geometry.cropX} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropX: Number(e.target.value) } }))} /></Field>
-            <Field label="Crop Y"><Slider min={0} max={90} value={state.geometry.cropY} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropY: Number(e.target.value) } }))} /></Field>
-            <Field label="Crop W"><Slider min={10} max={100} value={state.geometry.cropW} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropW: Number(e.target.value) } }))} /></Field>
-            <Field label="Crop H"><Slider min={10} max={100} value={state.geometry.cropH} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropH: Number(e.target.value) } }))} /></Field>
+          <div className="mb-2 rounded-xl border border-slate-300/70 bg-slate-100/90 p-2.5 text-[11px] leading-relaxed text-slate-700 dark:border-slate-600/70 dark:bg-slate-950/35 dark:text-slate-300">
+            Android-like quick tools: straighten, flip, free crop, and common aspect ratios for stories and wallpapers.
           </div>
-          <Field label="Rotate" hint={`${state.geometry.rotate}°`}><Slider min={-180} max={180} value={state.geometry.rotate} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, rotate: Number(e.target.value) } }))} /></Field>
-          <div className="flex gap-2 my-2"><Button variant="ghost" onClick={() => patch((p) => ({ ...p, geometry: { ...p.geometry, flipH: !p.geometry.flipH } }))}>Flip H</Button><Button variant="ghost" onClick={() => patch((p) => ({ ...p, geometry: { ...p.geometry, flipV: !p.geometry.flipV } }))}>Flip V</Button></div>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {GEOMETRY_RATIO_PRESETS.map((preset) => <button
+              key={preset.key}
+              type="button"
+              className={`rounded-xl border px-2.5 py-1 text-xs font-semibold transition ${state.geometry.ratioPreset === preset.key ? "border-sky-400 bg-sky-100 text-sky-700 dark:border-sky-300 dark:bg-sky-500/15 dark:text-sky-200" : "border-slate-300 text-slate-700 hover:border-slate-500 dark:border-slate-600/80 dark:text-slate-300 dark:hover:border-slate-400"}`}
+              onClick={() => applyRatioPreset(preset.key)}
+            >
+              {preset.label}
+            </button>)}
+          </div>
+          <Field label="Straighten" hint={`${formatControlValue(state.geometry.rotate, 1)}°`}><Slider min={-45} max={45} step={0.1} value={state.geometry.rotate} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, rotate: Number(e.target.value) } }))} /></Field>
+          <div className="my-2 grid grid-cols-4 gap-2">
+            <Button variant="ghost" onClick={() => nudgeGeometryRotate(-1)}>↺ 1°</Button>
+            <Button variant="ghost" onClick={() => nudgeGeometryRotate(1)}>↻ 1°</Button>
+            <Button variant="ghost" onClick={() => patch((p) => ({ ...p, geometry: { ...p.geometry, flipH: !p.geometry.flipH } }))}>Flip H</Button>
+            <Button variant="ghost" onClick={() => patch((p) => ({ ...p, geometry: { ...p.geometry, flipV: !p.geometry.flipV } }))}>Flip V</Button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Crop Left" hint={`${formatControlValue(state.geometry.cropX, 1)}%`}><Slider min={0} max={95} step={0.2} value={state.geometry.cropX} onChange={(e) => patchGeometryCrop("cropX", Number(e.target.value))} /></Field>
+            <Field label="Crop Top" hint={`${formatControlValue(state.geometry.cropY, 1)}%`}><Slider min={0} max={95} step={0.2} value={state.geometry.cropY} onChange={(e) => patchGeometryCrop("cropY", Number(e.target.value))} /></Field>
+            <Field label="Crop Width" hint={`${formatControlValue(state.geometry.cropW, 1)}%`}><Slider min={5} max={100} step={0.2} value={state.geometry.cropW} onChange={(e) => patchGeometryCrop("cropW", Number(e.target.value))} /></Field>
+            <Field label="Crop Height" hint={`${formatControlValue(state.geometry.cropH, 1)}%`}><Slider min={5} max={100} step={0.2} value={state.geometry.cropH} onChange={(e) => patchGeometryCrop("cropH", Number(e.target.value))} /></Field>
+          </div>
+
           <div className="grid grid-cols-2 gap-2"><Field label="Width"><Input type="number" min={1} value={state.geometry.resizeW} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, resizeW: Number(e.target.value) } }))} /></Field><Field label="Height"><Input type="number" min={1} value={state.geometry.resizeH} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, resizeH: Number(e.target.value) } }))} /></Field></div>
           <Field label="Perspective V" hint={String(state.geometry.perspectiveV)}><Slider min={-100} max={100} value={state.geometry.perspectiveV} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, perspectiveV: Number(e.target.value) } }))} /></Field>
           <Field label="Perspective H" hint={String(state.geometry.perspectiveH)}><Slider min={-100} max={100} value={state.geometry.perspectiveH} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, perspectiveH: Number(e.target.value) } }))} /></Field>
