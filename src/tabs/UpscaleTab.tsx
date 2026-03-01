@@ -530,6 +530,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const sliderInteractionDepthRef = useRef(0);
   const settleTimerRef = useRef<number | null>(null);
   const preparedExportUrlRef = useRef<string | null>(null);
+  const compatibilityToastShownRef = useRef(false);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const cropGestureRef = useRef<{ mode: CropGestureMode; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number; quad: QuadShape } | null>(null);
   const cropGestureFrameRef = useRef<number | null>(null);
@@ -1039,13 +1040,17 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (message === "superseded" || message === "stale-render" || message === "invalidated") return null;
+      if (client.isCompatibilityMode() && !compatibilityToastShownRef.current) {
+        compatibilityToastShownRef.current = true;
+        setToast({ open: true, message: "Rendering failed on this browser. Using compatibility mode.", type: "warn" });
+      }
       console.error("Render worker failed", error);
       return null;
     }
   }, [lut3d, mobileTool, state]);
 
   const requestPreviewRender = useCallback((mode: Exclude<RenderMode, "export">) => {
-    if (!adjustmentActive || !previewCanvasRef.current || !sourceCanvasRef.current) return;
+    if (!adjustmentActive || !isDocumentVisible || !previewCanvasRef.current || !sourceCanvasRef.current) return;
     if (showBefore || holdBefore) {
       const src = (previewSourceCanvasRef.current ?? sourceCanvasRef.current) as HTMLCanvasElement;
       const preview = previewCanvasRef.current as HTMLCanvasElement;
@@ -1082,12 +1087,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       return;
     }
     void run();
-  }, [adjustmentActive, holdBefore, renderToCanvas, runRender, showBefore, state.export.quality]);
+  }, [adjustmentActive, holdBefore, isDocumentVisible, renderToCanvas, runRender, showBefore, state.export.quality]);
 
   const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false) => {
     const mode: RenderMode = forExport ? "export" : "final";
     const rendered = await runRender(mode, target);
-    if (!rendered) return;
+    if (!rendered) throw new Error("render-failed");
     renderToCanvas(target, rendered.bitmap, rendered.width, rendered.height);
   }, [renderToCanvas, runRender]);
 
@@ -1135,7 +1140,14 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   useEffect(() => {
     if (!adjustmentActive || !previewCanvasRef.current || !sourceCanvasRef.current) return;
     requestPreviewRender(isInteracting ? "interactive" : "final");
-  }, [state, adjustmentActive, showBefore, holdBefore, isInteracting, requestPreviewRender]);
+  }, [state, adjustmentActive, showBefore, holdBefore, isInteracting, isDocumentVisible, requestPreviewRender]);
+
+  useEffect(() => {
+    if (isDocumentVisible || !adjustmentActive) return;
+    renderClientRef.current?.stop();
+    renderClientRef.current = null;
+    setRefiningPreview(false);
+  }, [adjustmentActive, isDocumentVisible]);
 
   useEffect(() => {
     if (!adjustmentActive) return;
@@ -1267,7 +1279,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         </div>
       </div>}
 
-      <div className="h-full w-full p-3 pb-36 md:p-4 md:pb-36">
+      <div className={`h-full w-full p-3 pb-36 md:p-4 ${isMobile ? "md:pb-36" : "md:pb-4 md:pr-[min(30rem,46vw)]"}`}>
         <div
           className={`relative flex h-full w-full items-center justify-center overflow-auto rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 ${!file ? "cursor-pointer" : "cursor-default"}`}
           onClick={() => {
@@ -1376,7 +1388,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         </div>
       </div>
 
-      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className={`absolute inset-x-6 bottom-20 z-30 overflow-y-auto rounded-2xl border border-slate-300/70 bg-white/90 text-slate-800 shadow-xl backdrop-blur-md dark:border-slate-500/70 dark:bg-slate-900/82 dark:text-slate-100 sm:inset-x-4 sm:bottom-20 sm:p-3 p-2 ${sheetState === "collapsed" ? "max-h-[14vh]" : sheetState === "full" ? "max-h-[42vh]" : "max-h-[26vh] sm:max-h-[40vh]"}`}>
+      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className={`absolute z-30 overflow-y-auto rounded-2xl border border-slate-300/70 bg-white/90 text-slate-800 shadow-xl backdrop-blur-md dark:border-slate-500/70 dark:bg-slate-900/82 dark:text-slate-100 sm:p-3 p-2 ${isMobile ? `inset-x-6 bottom-20 sm:inset-x-4 sm:bottom-20 ${sheetState === "collapsed" ? "max-h-[14vh]" : sheetState === "full" ? "max-h-[42vh]" : "max-h-[26vh] sm:max-h-[40vh]"}` : "right-4 top-20 bottom-4 w-[min(28rem,42vw)]"}`}>
         <div className="mb-2 flex items-center justify-center"><button type="button" aria-label="Resize settings panel" onPointerDown={onSheetHandlePointerDown} className="h-1.5 w-14 rounded-full bg-slate-400/70 hover:bg-slate-500/80 dark:bg-slate-400/60 dark:hover:bg-slate-300/80" /></div>
         <div className="space-y-4">
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
@@ -1528,18 +1540,21 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             setBusy(true);
             try {
               await applyPipeline(out, true);
+              const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
+              const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
+              if (!blob) throw new Error("export-blob-failed");
+              if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
+              const nextUrl = URL.createObjectURL(blob);
+              preparedExportUrlRef.current = nextUrl;
+              const ext = state.export.format === "jpg" ? "jpg" : state.export.format;
+              setPreparedExport({ url: nextUrl, name: `edited.${ext}`, size: `${(blob.size / 1024).toFixed(1)} KB` });
+              setSettings((p) => ({ ...p, quality: state.export.quality, out: state.export.format === "jpg" ? "jpeg" : state.export.format as any }));
+            } catch (error) {
+              console.error("Prepare export failed", error);
+              setToast({ open: true, message: "Prepare export failed. Please retry in compatibility mode.", type: "error" });
             } finally {
               setBusy(false);
             }
-            const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
-            const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
-            if (!blob) return;
-            if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
-            const nextUrl = URL.createObjectURL(blob);
-            preparedExportUrlRef.current = nextUrl;
-            const ext = state.export.format === "jpg" ? "jpg" : state.export.format;
-            setPreparedExport({ url: nextUrl, name: `edited.${ext}`, size: `${(blob.size / 1024).toFixed(1)} KB` });
-            setSettings((p) => ({ ...p, quality: state.export.quality, out: state.export.format === "jpg" ? "jpeg" : state.export.format as any }));
           }}>Prepare export</Button>
           {preparedExport ? <div className="mt-2 rounded-xl bg-slate-100 p-2 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">Ready to download: <b>{preparedExport.name}</b> · {preparedExport.size}<Button className="mt-2 w-full" onClick={() => {
             const a = document.createElement("a");
@@ -1552,14 +1567,14 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       </div>
       </div> : null}
 
-      <div className="absolute inset-x-4 bottom-4 z-30">
+      <div className={`absolute inset-x-4 bottom-4 z-30 ${isMobile ? "" : "right-6 left-auto w-auto"}`}>
         <div className="mx-auto w-full overflow-x-auto rounded-2xl border border-slate-600/60 bg-slate-950/70 px-3 py-2 [scrollbar-width:thin]">
           <div className="flex min-w-max items-center justify-center gap-2">
           {SECTION_ITEMS.map((item) => <button
             key={item.key}
             type="button"
             aria-label={item.label}
-            className={`flex h-12 w-12 items-center justify-center rounded-xl border transition ${mobileTool === item.key && showSettingsMobile ? "border-sky-300 bg-sky-500/10 text-sky-200" : "border-slate-500 bg-transparent text-slate-200 hover:border-slate-300"}`}
+            className={`flex h-12 w-12 items-center justify-center rounded-xl border transition ${mobileTool === item.key && showSettingsMobile ? "border-sky-300 bg-sky-500/10 text-sky-200 opacity-100" : "border-slate-500 bg-transparent text-slate-200 hover:border-slate-300 opacity-45 hover:opacity-80"}`}
             onClick={() => {
               if (mobileTool === item.key) {
                 setShowSettingsMobile((v) => !v);
