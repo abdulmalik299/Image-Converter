@@ -51,6 +51,15 @@ type EditorState = {
     vignette: number;
     smoothingQuality: "low" | "medium" | "high";
     ratioPreset: GeometryRatioPreset;
+    cropShapeMode: "rect" | "quad";
+    quadTLX: number;
+    quadTLY: number;
+    quadTRX: number;
+    quadTRY: number;
+    quadBRX: number;
+    quadBRY: number;
+    quadBLX: number;
+    quadBLY: number;
   };
   advanced: {
     gamma: number;
@@ -87,9 +96,9 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
 const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
 const PREVIEW_MAX_DIMENSION = 1920;
 const INTERACTIVE_PREVIEW_MAX_DIMENSION = 960;
-const INTERACTIVE_PREVIEW_DELAY_MS = 16;
-const FINAL_PREVIEW_DELAY_MS = 26;
-const PREVIEW_TARGET_BYTES = 200 * 1024;
+const INTERACTIVE_PREVIEW_DELAY_MS = 10;
+const FINAL_PREVIEW_DELAY_MS = 18;
+const PREVIEW_TARGET_BYTES = 260 * 1024;
 
 const GEOMETRY_RATIO_PRESETS = [
   { key: "free", label: "Custom" },
@@ -101,6 +110,19 @@ const GEOMETRY_RATIO_PRESETS = [
   { key: "16:9", label: "16:9" }
 ] as const;
 type GeometryRatioPreset = (typeof GEOMETRY_RATIO_PRESETS)[number]["key"];
+
+type CropGestureMode = "move" | "nw" | "ne" | "sw" | "se" | "quadMove" | "quadTL" | "quadTR" | "quadBR" | "quadBL" | "edgeTop" | "edgeRight" | "edgeBottom" | "edgeLeft";
+
+type QuadShape = {
+  quadTLX: number;
+  quadTLY: number;
+  quadTRX: number;
+  quadTRY: number;
+  quadBRX: number;
+  quadBRY: number;
+  quadBLX: number;
+  quadBLY: number;
+};
 
 function applyColorSpaceTransform(r: number, g: number, b: number, colorSpace: EditorState["export"]["colorSpace"]) {
   if (colorSpace === "Display-P3") return { r: clamp(r * 1.03), g: clamp(g * 1.01), b: clamp(b * 1.06) };
@@ -147,7 +169,16 @@ const defaultState: EditorState = {
     lensDistortion: 0,
     vignette: 0,
     smoothingQuality: "high",
-    ratioPreset: "original"
+    ratioPreset: "original",
+    cropShapeMode: "rect",
+    quadTLX: 0,
+    quadTLY: 0,
+    quadTRX: 100,
+    quadTRY: 0,
+    quadBRX: 100,
+    quadBRY: 100,
+    quadBLX: 0,
+    quadBLY: 100
   },
   advanced: {
     gamma: 1,
@@ -336,6 +367,49 @@ function clampCropWithRatio(cropX: number, cropY: number, cropW: number, cropH: 
   };
 }
 
+function getQuadPoints(g: EditorState["geometry"]) {
+  return [
+    { x: g.quadTLX, y: g.quadTLY },
+    { x: g.quadTRX, y: g.quadTRY },
+    { x: g.quadBRX, y: g.quadBRY },
+    { x: g.quadBLX, y: g.quadBLY }
+  ];
+}
+
+function clampQuadShape(shape: QuadShape): QuadShape {
+  return {
+    quadTLX: clampPercent(shape.quadTLX),
+    quadTLY: clampPercent(shape.quadTLY),
+    quadTRX: clampPercent(shape.quadTRX),
+    quadTRY: clampPercent(shape.quadTRY),
+    quadBRX: clampPercent(shape.quadBRX),
+    quadBRY: clampPercent(shape.quadBRY),
+    quadBLX: clampPercent(shape.quadBLX),
+    quadBLY: clampPercent(shape.quadBLY)
+  };
+}
+
+function moveQuadShape(shape: QuadShape, dx: number, dy: number): QuadShape {
+  const xs = [shape.quadTLX, shape.quadTRX, shape.quadBRX, shape.quadBLX];
+  const ys = [shape.quadTLY, shape.quadTRY, shape.quadBRY, shape.quadBLY];
+  const minDx = -Math.min(...xs);
+  const maxDx = 100 - Math.max(...xs);
+  const minDy = -Math.min(...ys);
+  const maxDy = 100 - Math.max(...ys);
+  const boundedDx = clamp(dx, minDx, maxDx);
+  const boundedDy = clamp(dy, minDy, maxDy);
+  return {
+    quadTLX: shape.quadTLX + boundedDx,
+    quadTLY: shape.quadTLY + boundedDy,
+    quadTRX: shape.quadTRX + boundedDx,
+    quadTRY: shape.quadTRY + boundedDy,
+    quadBRX: shape.quadBRX + boundedDx,
+    quadBRY: shape.quadBRY + boundedDy,
+    quadBLX: shape.quadBLX + boundedDx,
+    quadBLY: shape.quadBLY + boundedDy
+  };
+}
+
 function parseRatioPreset(preset: GeometryRatioPreset): number | null {
   if (preset === "free" || preset === "original") return null;
   const [w, h] = preset.split(":").map(Number);
@@ -454,10 +528,10 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const previewTimerRef = useRef<number | null>(null);
   const preparedExportUrlRef = useRef<string | null>(null);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
-  const cropGestureRef = useRef<{ mode: "move" | "nw" | "ne" | "sw" | "se"; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
+  const cropGestureRef = useRef<{ mode: CropGestureMode; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number; quad: QuadShape } | null>(null);
   const cropGestureFrameRef = useRef<number | null>(null);
   const bodyScrollRestoreRef = useRef<{ overflow: string; touchAction: string } | null>(null);
-  const pendingCropRef = useRef<{ cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
+  const pendingCropRef = useRef<{ cropX: number; cropY: number; cropW: number; cropH: number; quad?: QuadShape } | null>(null);
   const [preparedExport, setPreparedExport] = useState<{ url: string; name: string; size: string } | null>(null);
   const sectionRefs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     basicTone: null,
@@ -582,7 +656,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     }));
   }, [patch]);
 
-  const startCropGesture = useCallback((mode: "move" | "nw" | "ne" | "sw" | "se", event: ReactPointerEvent<HTMLElement>) => {
+  const startCropGesture = useCallback((mode: CropGestureMode, event: ReactPointerEvent<HTMLElement>) => {
     if (!file || mobileTool !== "geometry" || !previewCanvasRef.current) return;
     event.preventDefault();
     event.stopPropagation();
@@ -605,7 +679,17 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       cropX: state.geometry.cropX,
       cropY: state.geometry.cropY,
       cropW: state.geometry.cropW,
-      cropH: state.geometry.cropH
+      cropH: state.geometry.cropH,
+      quad: {
+        quadTLX: state.geometry.quadTLX,
+        quadTLY: state.geometry.quadTLY,
+        quadTRX: state.geometry.quadTRX,
+        quadTRY: state.geometry.quadTRY,
+        quadBRX: state.geometry.quadBRX,
+        quadBRY: state.geometry.quadBRY,
+        quadBLX: state.geometry.quadBLX,
+        quadBLY: state.geometry.quadBLY
+      }
     };
 
     const onMove = (moveEvent: PointerEvent) => {
@@ -626,7 +710,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       if (gesture.mode === "move") {
         cropX = gesture.cropX + dxPct;
         cropY = gesture.cropY + dyPct;
-      } else {
+      } else if (["nw", "ne", "sw", "se"].includes(gesture.mode)) {
         if (gesture.mode === "nw" || gesture.mode === "sw") {
           cropX = clampPercent(gesture.cropX + dxPct, 0, gesture.cropX + gesture.cropW - minSize);
           cropW = clampPercent(gesture.cropW - (cropX - gesture.cropX), minSize, 100);
@@ -643,6 +727,27 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         }
       }
 
+      let quad = gesture.quad;
+      if (gesture.mode === "quadMove") {
+        quad = moveQuadShape(gesture.quad, dxPct, dyPct);
+      } else if (gesture.mode === "quadTL") {
+        quad = clampQuadShape({ ...gesture.quad, quadTLX: gesture.quad.quadTLX + dxPct, quadTLY: gesture.quad.quadTLY + dyPct });
+      } else if (gesture.mode === "quadTR") {
+        quad = clampQuadShape({ ...gesture.quad, quadTRX: gesture.quad.quadTRX + dxPct, quadTRY: gesture.quad.quadTRY + dyPct });
+      } else if (gesture.mode === "quadBR") {
+        quad = clampQuadShape({ ...gesture.quad, quadBRX: gesture.quad.quadBRX + dxPct, quadBRY: gesture.quad.quadBRY + dyPct });
+      } else if (gesture.mode === "quadBL") {
+        quad = clampQuadShape({ ...gesture.quad, quadBLX: gesture.quad.quadBLX + dxPct, quadBLY: gesture.quad.quadBLY + dyPct });
+      } else if (gesture.mode === "edgeTop") {
+        quad = clampQuadShape({ ...gesture.quad, quadTLX: gesture.quad.quadTLX + dxPct, quadTLY: gesture.quad.quadTLY + dyPct, quadTRX: gesture.quad.quadTRX + dxPct, quadTRY: gesture.quad.quadTRY + dyPct });
+      } else if (gesture.mode === "edgeRight") {
+        quad = clampQuadShape({ ...gesture.quad, quadTRX: gesture.quad.quadTRX + dxPct, quadTRY: gesture.quad.quadTRY + dyPct, quadBRX: gesture.quad.quadBRX + dxPct, quadBRY: gesture.quad.quadBRY + dyPct });
+      } else if (gesture.mode === "edgeBottom") {
+        quad = clampQuadShape({ ...gesture.quad, quadBLX: gesture.quad.quadBLX + dxPct, quadBLY: gesture.quad.quadBLY + dyPct, quadBRX: gesture.quad.quadBRX + dxPct, quadBRY: gesture.quad.quadBRY + dyPct });
+      } else if (gesture.mode === "edgeLeft") {
+        quad = clampQuadShape({ ...gesture.quad, quadTLX: gesture.quad.quadTLX + dxPct, quadTLY: gesture.quad.quadTLY + dyPct, quadBLX: gesture.quad.quadBLX + dxPct, quadBLY: gesture.quad.quadBLY + dyPct });
+      }
+
       const ratio = state.geometry.ratioPreset === "original"
         ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
         : parseRatioPreset(state.geometry.ratioPreset);
@@ -650,13 +755,23 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         ? clampCropWithRatio(cropX, cropY, cropW, cropH, ratio)
         : clampCropToBounds(cropX, cropY, cropW, cropH);
 
-      pendingCropRef.current = nextCrop;
+      pendingCropRef.current = { ...nextCrop, quad };
       if (cropGestureFrameRef.current !== null) return;
       cropGestureFrameRef.current = window.requestAnimationFrame(() => {
         cropGestureFrameRef.current = null;
         const pending = pendingCropRef.current;
         if (!pending) return;
-        patch((prev) => ({ ...prev, geometry: { ...prev.geometry, ...pending } }));
+        patch((prev) => ({
+          ...prev,
+          geometry: {
+            ...prev.geometry,
+            cropX: pending.cropX,
+            cropY: pending.cropY,
+            cropW: pending.cropW,
+            cropH: pending.cropH,
+            ...(pending.quad ?? {})
+          }
+        }));
       });
     };
 
@@ -817,6 +932,73 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     setCanvasRenderNonce((v) => v + 1);
   }, []);
 
+  const commitCropSelection = useCallback(() => {
+    const geometry = state.geometry;
+    const applyDestructiveCrop = (src: HTMLCanvasElement | null) => {
+      if (!src) return null;
+      const out = document.createElement("canvas");
+
+      if (geometry.cropShapeMode === "quad") {
+        const points = getQuadPoints(geometry).map((pt) => ({
+          x: (pt.x / 100) * src.width,
+          y: (pt.y / 100) * src.height
+        }));
+        const minX = Math.max(0, Math.floor(Math.min(...points.map((pt) => pt.x))));
+        const minY = Math.max(0, Math.floor(Math.min(...points.map((pt) => pt.y))));
+        const maxX = Math.min(src.width, Math.ceil(Math.max(...points.map((pt) => pt.x))));
+        const maxY = Math.min(src.height, Math.ceil(Math.max(...points.map((pt) => pt.y))));
+        const w = Math.max(1, maxX - minX);
+        const h = Math.max(1, maxY - minY);
+        out.width = w;
+        out.height = h;
+        const octx = out.getContext("2d");
+        if (!octx) return src;
+        octx.save();
+        octx.beginPath();
+        octx.moveTo(points[0].x - minX, points[0].y - minY);
+        octx.lineTo(points[1].x - minX, points[1].y - minY);
+        octx.lineTo(points[2].x - minX, points[2].y - minY);
+        octx.lineTo(points[3].x - minX, points[3].y - minY);
+        octx.closePath();
+        octx.clip();
+        octx.drawImage(src, -minX, -minY);
+        octx.restore();
+        return out;
+      }
+
+      const cropX = Math.round((geometry.cropX / 100) * src.width);
+      const cropY = Math.round((geometry.cropY / 100) * src.height);
+      const cropW = Math.max(1, Math.round((geometry.cropW / 100) * src.width));
+      const cropH = Math.max(1, Math.round((geometry.cropH / 100) * src.height));
+      out.width = cropW;
+      out.height = cropH;
+      out.getContext("2d")?.drawImage(src, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      return out;
+    };
+
+    sourceCanvasRef.current = applyDestructiveCrop(sourceCanvasRef.current);
+    previewSourceCanvasRef.current = applyDestructiveCrop(previewSourceCanvasRef.current);
+    patch((prev) => ({
+      ...prev,
+      geometry: {
+        ...prev.geometry,
+        cropX: 0,
+        cropY: 0,
+        cropW: 100,
+        cropH: 100,
+        quadTLX: 0,
+        quadTLY: 0,
+        quadTRX: 100,
+        quadTRY: 0,
+        quadBRX: 100,
+        quadBRY: 100,
+        quadBLX: 0,
+        quadBLY: 100
+      }
+    }));
+    setCanvasRenderNonce((v) => v + 1);
+  }, [patch, state.geometry]);
+
   const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false, showBusy = false) => {
     const originalSource = sourceCanvasRef.current;
     const previewSource = previewSourceCanvasRef.current;
@@ -827,8 +1009,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     await new Promise((r) => setTimeout(r, 0));
     if (token !== renderTokenRef.current) return;
     const g = state.geometry;
-    const cropX = Math.round((g.cropX / 100) * src.width), cropY = Math.round((g.cropY / 100) * src.height);
-    const cropW = Math.max(1, Math.round((g.cropW / 100) * src.width)), cropH = Math.max(1, Math.round((g.cropH / 100) * src.height));
+    const showLiveCropOverlayOnly = !forExport && mobileTool === "geometry";
+    const cropX = showLiveCropOverlayOnly ? 0 : Math.round((g.cropX / 100) * src.width);
+    const cropY = showLiveCropOverlayOnly ? 0 : Math.round((g.cropY / 100) * src.height);
+    const cropW = showLiveCropOverlayOnly ? src.width : Math.max(1, Math.round((g.cropW / 100) * src.width));
+    const cropH = showLiveCropOverlayOnly ? src.height : Math.max(1, Math.round((g.cropH / 100) * src.height));
     const previewScaleX = src.width / originalSource.width;
     const previewScaleY = src.height / originalSource.height;
     const targetW = forExport && state.export.resizeOnExport
@@ -840,7 +1025,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     const outW = forExport ? targetW : Math.min(targetW, src.width);
     const outH = forExport ? targetH : Math.min(targetH, src.height);
     const interactiveMaxScale = !forExport && lightweight ? Math.min(1, INTERACTIVE_PREVIEW_MAX_DIMENSION / Math.max(outW, outH)) : 1;
-    const renderScale = !forExport && lightweight ? Math.min(0.68, interactiveMaxScale) : 1;
+    const renderScale = !forExport && lightweight ? Math.min(0.82, interactiveMaxScale) : 1;
     const workW = Math.max(1, Math.round(outW * renderScale));
     const workH = Math.max(1, Math.round(outH * renderScale));
 
@@ -1056,7 +1241,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       targetCtx.drawImage(temp, 0, 0, outW, outH);
     }
     setBusy(false);
-  }, [lut3d, state]);
+  }, [lut3d, mobileTool, state]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -1250,36 +1435,98 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         >
           {!file ? <span className="text-slate-500 dark:text-slate-400 text-sm">Load an image to begin editing.</span> : <div ref={previewWrapRef} className="relative inline-block">
             <canvas key={canvasRenderNonce} ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />
-            {mobileTool === "geometry" && !showBefore && !holdBefore ? <>
-              <div
-                className="absolute cursor-move rounded-lg border border-white/25 touch-none"
-                onPointerDown={(e) => startCropGesture("move", e)}
-                style={{
-                  left: `${state.geometry.cropX}%`,
-                  top: `${state.geometry.cropY}%`,
-                  width: `${state.geometry.cropW}%`,
-                  height: `${state.geometry.cropH}%`,
-                  boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.45)"
-                }}
-              >
-                <div className="absolute inset-0 border border-white/80" />
-                <div className="absolute left-1/3 right-1/3 top-0 h-px bg-white/40" />
-                <div className="absolute left-1/3 right-1/3 bottom-0 h-px bg-white/40" />
-                <div className="absolute top-1/3 bottom-1/3 left-0 w-px bg-white/40" />
-                <div className="absolute top-1/3 bottom-1/3 right-0 w-px bg-white/40" />
-                {["nw", "ne", "sw", "se"].map((corner) => {
-                  const posClass = corner === "nw" ? "-left-2 -top-2" : corner === "ne" ? "-right-2 -top-2" : corner === "sw" ? "-left-2 -bottom-2" : "-right-2 -bottom-2";
-                  return <button
-                    key={corner}
+            {mobileTool === "geometry" && !showBefore && !holdBefore ? (() => {
+              const g = state.geometry;
+              const rectMidX = g.cropX + g.cropW / 2;
+              const rectTop = g.cropY;
+              const quadPoints = [
+                { key: "quadTL" as const, x: g.quadTLX, y: g.quadTLY },
+                { key: "quadTR" as const, x: g.quadTRX, y: g.quadTRY },
+                { key: "quadBR" as const, x: g.quadBRX, y: g.quadBRY },
+                { key: "quadBL" as const, x: g.quadBLX, y: g.quadBLY }
+              ];
+              const edgeHandles = [
+                { key: "edgeTop" as const, x: (g.quadTLX + g.quadTRX) / 2, y: (g.quadTLY + g.quadTRY) / 2 },
+                { key: "edgeRight" as const, x: (g.quadTRX + g.quadBRX) / 2, y: (g.quadTRY + g.quadBRY) / 2 },
+                { key: "edgeBottom" as const, x: (g.quadBLX + g.quadBRX) / 2, y: (g.quadBLY + g.quadBRY) / 2 },
+                { key: "edgeLeft" as const, x: (g.quadTLX + g.quadBLX) / 2, y: (g.quadTLY + g.quadBLY) / 2 }
+              ];
+              const quadCenterX = (g.quadTLX + g.quadTRX + g.quadBRX + g.quadBLX) / 4;
+              const quadCenterY = (g.quadTLY + g.quadTRY + g.quadBRY + g.quadBLY) / 4;
+              const doneX = g.cropShapeMode === "quad" ? quadCenterX : rectMidX;
+              const doneY = g.cropShapeMode === "quad" ? Math.min(g.quadTLY, g.quadTRY, g.quadBRY, g.quadBLY) : rectTop;
+
+              return <>
+                <button
+                  type="button"
+                  className="absolute z-20 -translate-x-1/2 rounded-md border border-white/70 bg-slate-900/85 px-3 py-1 text-xs font-semibold text-white"
+                  style={{ left: `${doneX}%`, top: `calc(${doneY}% - 2rem)` }}
+                  onClick={commitCropSelection}
+                >
+                  Done
+                </button>
+                {g.cropShapeMode === "rect" ? <div
+                  className="absolute cursor-move rounded-lg border border-white/25 touch-none"
+                  onPointerDown={(e) => startCropGesture("move", e)}
+                  style={{
+                    left: `${g.cropX}%`,
+                    top: `${g.cropY}%`,
+                    width: `${g.cropW}%`,
+                    height: `${g.cropH}%`,
+                    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.45)"
+                  }}
+                >
+                  <div className="absolute inset-0 border border-white/80" />
+                  <div className="absolute left-1/3 right-1/3 top-0 h-px bg-white/40" />
+                  <div className="absolute left-1/3 right-1/3 bottom-0 h-px bg-white/40" />
+                  <div className="absolute top-1/3 bottom-1/3 left-0 w-px bg-white/40" />
+                  <div className="absolute top-1/3 bottom-1/3 right-0 w-px bg-white/40" />
+                  {["nw", "ne", "sw", "se"].map((corner) => {
+                    const posClass = corner === "nw" ? "-left-2 -top-2" : corner === "ne" ? "-right-2 -top-2" : corner === "sw" ? "-left-2 -bottom-2" : "-right-2 -bottom-2";
+                    return <button
+                      key={corner}
+                      type="button"
+                      className={`absolute h-4 w-4 rounded-full border border-white bg-slate-900/80 ${posClass}`}
+                      onPointerDown={(e) => startCropGesture(corner as CropGestureMode, e)}
+                      style={{ touchAction: "none" }}
+                      aria-label={`Resize crop ${corner}`}
+                    />;
+                  })}
+                </div> : <div className="absolute inset-0">
+                  <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <polygon
+                      points={`${g.quadTLX},${g.quadTLY} ${g.quadTRX},${g.quadTRY} ${g.quadBRX},${g.quadBRY} ${g.quadBLX},${g.quadBLY}`}
+                      fill="rgba(15,23,42,0.28)"
+                      stroke="rgba(255,255,255,0.92)"
+                      strokeWidth="0.35"
+                    />
+                  </svg>
+                  <button
                     type="button"
-                    className={`absolute h-4 w-4 rounded-full border border-white bg-slate-900/80 ${posClass}`}
-                    onPointerDown={(e) => startCropGesture(corner as "nw" | "ne" | "sw" | "se", e)}
-                    style={{ touchAction: "none" }}
-                    aria-label={`Resize crop ${corner}`}
-                  />;
-                })}
-              </div>
-            </> : null}
+                    className="absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 bg-slate-900/85"
+                    style={{ left: `${quadCenterX}%`, top: `${quadCenterY}%` }}
+                    onPointerDown={(e) => startCropGesture("quadMove", e)}
+                    aria-label="Move custom crop shape"
+                  />
+                  {quadPoints.map((point) => <button
+                    key={point.key}
+                    type="button"
+                    className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-slate-900/90"
+                    style={{ left: `${point.x}%`, top: `${point.y}%` }}
+                    onPointerDown={(e) => startCropGesture(point.key, e)}
+                    aria-label={`Move ${point.key}`}
+                  />)}
+                  {edgeHandles.map((edge) => <button
+                    key={edge.key}
+                    type="button"
+                    className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 bg-slate-800/90"
+                    style={{ left: `${edge.x}%`, top: `${edge.y}%` }}
+                    onPointerDown={(e) => startCropGesture(edge.key, e)}
+                    aria-label={`Move ${edge.key}`}
+                  />)}
+                </div>}
+              </>;
+            })() : null}
           </div>}
           {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
           {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
@@ -1368,6 +1615,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           <div className="mb-2 rounded-xl border border-slate-300/70 bg-slate-100/90 p-2.5 text-[11px] leading-relaxed text-slate-700 dark:border-slate-600/70 dark:bg-slate-950/35 dark:text-slate-300">
             Android-like quick tools: straighten, flip, free crop, and common aspect ratios for stories and wallpapers.
           </div>
+          <Field label="Crop mode">
+            <Select value={state.geometry.cropShapeMode} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, cropShapeMode: e.target.value as "rect" | "quad" } }))}>
+              <option value="rect">Rectangle crop</option>
+              <option value="quad">Custom edge shape</option>
+            </Select>
+          </Field>
           <div className="mb-3 flex flex-wrap gap-2">
             {GEOMETRY_RATIO_PRESETS.map((preset) => <button
               key={preset.key}
@@ -1386,11 +1639,14 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
             <Button variant="ghost" onClick={() => patch((p) => ({ ...p, geometry: { ...p.geometry, flipV: !p.geometry.flipV } }))}>Flip V</Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          {state.geometry.cropShapeMode === "rect" ? <div className="grid grid-cols-2 gap-2">
             <Field label="Crop Left" hint={`${formatControlValue(state.geometry.cropX, 1)}%`}><Slider min={0} max={95} step={0.2} value={state.geometry.cropX} onChange={(e) => patchGeometryCrop("cropX", Number(e.target.value))} /></Field>
             <Field label="Crop Top" hint={`${formatControlValue(state.geometry.cropY, 1)}%`}><Slider min={0} max={95} step={0.2} value={state.geometry.cropY} onChange={(e) => patchGeometryCrop("cropY", Number(e.target.value))} /></Field>
             <Field label="Crop Width" hint={`${formatControlValue(state.geometry.cropW, 1)}%`}><Slider min={5} max={100} step={0.2} value={state.geometry.cropW} onChange={(e) => patchGeometryCrop("cropW", Number(e.target.value))} /></Field>
             <Field label="Crop Height" hint={`${formatControlValue(state.geometry.cropH, 1)}%`}><Slider min={5} max={100} step={0.2} value={state.geometry.cropH} onChange={(e) => patchGeometryCrop("cropH", Number(e.target.value))} /></Field>
+          </div> : <div className="rounded-lg border border-slate-300/70 bg-slate-100/80 p-2 text-xs text-slate-700 dark:border-slate-600/70 dark:bg-slate-950/35 dark:text-slate-300">Drag any corner or edge point in preview to shape the crop polygon, then tap Done.</div>}
+          <div className="mt-2 flex justify-end">
+            <Button variant="ghost" onClick={commitCropSelection}>Done (apply crop)</Button>
           </div>
 
           <div className="grid grid-cols-2 gap-2"><Field label="Width"><Input type="number" min={1} value={state.geometry.resizeW} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, resizeW: Number(e.target.value) } }))} /></Field><Field label="Height"><Input type="number" min={1} value={state.geometry.resizeH} onChange={(e) => patch((p) => ({ ...p, geometry: { ...p.geometry, resizeH: Number(e.target.value) } }))} /></Field></div>
