@@ -10,10 +10,7 @@ type RenderErrorResponse = {
 self.onmessage = async (event: MessageEvent<RenderRequest>) => {
   if (event.data.type !== "render") return;
   const request = event.data;
-  try {
-    const response = await runAdjustRender(request);
-    (self as DedicatedWorkerGlobalScope).postMessage(response, [response.bitmap]);
-  } catch (error) {
+  const postFailure = (error: unknown) => {
     const err = error instanceof Error ? error : new Error(String(error));
     const response: RenderErrorResponse = {
       type: "error",
@@ -22,7 +19,18 @@ self.onmessage = async (event: MessageEvent<RenderRequest>) => {
       stack: err.stack
     };
     (self as DedicatedWorkerGlobalScope).postMessage(response);
+  };
+
+  try {
+    const response = await runAdjustRender(request);
+    (self as DedicatedWorkerGlobalScope).postMessage(response, [response.bitmap]);
+  } catch (error) {
+    postFailure(error);
   } finally {
-    request.sourceBitmap.close();
+    try {
+      request.sourceBitmap.close();
+    } catch (closeError) {
+      postFailure(closeError);
+    }
   }
 };

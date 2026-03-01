@@ -46,6 +46,10 @@ function createCanvas(width: number, height: number) {
   if (typeof OffscreenCanvas !== "undefined") {
     return new OffscreenCanvas(width, height);
   }
+  const inWorker = typeof WorkerGlobalScope !== "undefined" && typeof self !== "undefined" && self instanceof WorkerGlobalScope;
+  if (inWorker) {
+    throw new Error("no-offscreencanvas-in-worker");
+  }
   if (typeof document !== "undefined") {
     const canvas = document.createElement("canvas");
     canvas.width = width;

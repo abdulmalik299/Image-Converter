@@ -22,12 +22,19 @@ type PendingRequest = {
   timeoutId: number;
 };
 
+export type RenderErrorInfo = {
+  mode: RenderMode;
+  source: "worker" | "main";
+  message: string;
+};
+
 type WorkerRenderMessage = { type: "rendered"; requestId: number; bitmap: ImageBitmap; width: number; height: number };
 type WorkerErrorMessage = { type: "error"; requestId: number; message: string; stack?: string };
 
 const RENDER_TIMEOUT_MS = 10000;
 
 export class AdjustRenderClient {
+  onRenderError?: (error: RenderErrorInfo) => void;
   private worker: Worker | null = null;
   private requestId = 0;
   private latestRequestId = 0;
@@ -86,6 +93,7 @@ export class AdjustRenderClient {
   }
 
   private rejectAllAndReset(error: Error) {
+    this.onRenderError?.({ mode: "final", source: "worker", message: error.message || "Render worker failed" });
     for (const pending of this.pending.values()) {
       window.clearTimeout(pending.timeoutId);
       pending.reject(error);
@@ -138,9 +146,32 @@ export class AdjustRenderClient {
       }
     }
 
+    const fallbackToMainThread = async (error: unknown): Promise<RenderResult> => {
+      const err = error instanceof Error ? error : new Error("Render worker failed");
+      const message = err.message || "Render worker failed";
+      this.onRenderError?.({ mode: payload.mode, source: "worker", message });
+      if (!this.compatibilityMode) this.compatibilityMode = true;
+      if (message === "stale-render" || message === "superseded" || message === "invalidated") {
+        throw err;
+      }
+      try {
+        return await this.renderOnMainThread(payload, requestId);
+      } catch (mainError) {
+        const mainErr = mainError instanceof Error ? mainError : new Error("Render failed");
+        this.onRenderError?.({ mode: payload.mode, source: "main", message: mainErr.message || "Render failed" });
+        throw mainErr;
+      }
+    };
+
     const worker = this.ensureWorker();
     if (!worker) {
-      return this.renderOnMainThread(payload, requestId);
+      try {
+        return await this.renderOnMainThread(payload, requestId);
+      } catch (mainError) {
+        const mainErr = mainError instanceof Error ? mainError : new Error("Render failed");
+        this.onRenderError?.({ mode: payload.mode, source: "main", message: mainErr.message || "Render failed" });
+        throw mainErr;
+      }
     }
 
     const sourceBitmap = await createImageBitmap(payload.sourceCanvas);
@@ -177,13 +208,7 @@ export class AdjustRenderClient {
         this.rejectAllAndReset(error instanceof Error ? error : new Error("Render worker postMessage failed"));
         reject(error);
       }
-    }).catch(async (error) => {
-      const message = error instanceof Error ? error.message : "";
-      if (message === "stale-render" || message === "superseded" || message === "invalidated") {
-        throw error;
-      }
-      return this.renderOnMainThread(payload, requestId);
-    });
+    }).catch((error) => fallbackToMainThread(error));
   }
 
   invalidate() {
