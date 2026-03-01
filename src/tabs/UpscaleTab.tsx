@@ -84,7 +84,7 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
 ];
 
 const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
-const PREVIEW_MAX_DIMENSION = 2048;
+const PREVIEW_MAX_DIMENSION = 2560;
 
 function applyColorSpaceTransform(r: number, g: number, b: number, colorSpace: EditorState["export"]["colorSpace"]) {
   if (colorSpace === "Display-P3") return { r: clamp(r * 1.03), g: clamp(g * 1.01), b: clamp(b * 1.06) };
@@ -241,6 +241,47 @@ function mapHueRange(h: number): HslRange {
   return "magenta";
 }
 
+function hueDistance(a: number, b: number) {
+  const raw = Math.abs(a - b) % 360;
+  return Math.min(raw, 360 - raw);
+}
+
+function getHueBandWeights(h: number): Record<HslRange, number> {
+  const hue = (h * 360 + 360) % 360;
+  const centers: Record<HslRange, number> = {
+    red: 0,
+    orange: 32,
+    yellow: 58,
+    green: 125,
+    aqua: 185,
+    blue: 238,
+    purple: 280,
+    magenta: 322
+  };
+  const width = 78;
+  const falloff = 1.15;
+  const weights = {} as Record<HslRange, number>;
+  let sum = 0;
+  for (const range of HSL_RANGES) {
+    const dist = hueDistance(hue, centers[range]);
+    const influence = Math.max(0, 1 - dist / width);
+    const weight = Math.pow(influence, falloff);
+    weights[range] = weight;
+    sum += weight;
+  }
+  if (sum <= 0.0001) {
+    const fallback = mapHueRange(h);
+    for (const range of HSL_RANGES) weights[range] = range === fallback ? 1 : 0;
+    return weights;
+  }
+  for (const range of HSL_RANGES) weights[range] /= sum;
+  return weights;
+}
+
+function formatControlValue(value: number, digits = 1) {
+  return Number.isFinite(value) ? value.toFixed(digits) : "0";
+}
+
 function sampleNeighborhood(data: Uint8ClampedArray, w: number, h: number, x: number, y: number, radius: number) {
   let r = 0, g = 0, b = 0, c = 0;
   for (let yy = -radius; yy <= radius; yy++) {
@@ -307,14 +348,14 @@ function ToolbarButton({ active = false, className = "", ...props }: React.Butto
 function Collapsible({ title, defaultOpen = true, right, children, icon }: { title: string; defaultOpen?: boolean; right?: React.ReactNode; children: React.ReactNode; icon: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   return <div className="rounded-2xl border border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/70">
-    <div className="w-full px-4 py-3 flex items-center gap-3">
+    <div className="w-full px-3 py-2.5 flex items-center gap-2">
       <button type="button" className="flex-1 flex justify-between items-center" onClick={() => setOpen((v) => !v)}>
         <span className="font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2">{icon}{title}</span>
         <span>{open ? "−" : "+"}</span>
       </button>
       {right ? <div onClick={(e) => e.stopPropagation()}>{right}</div> : null}
     </div>
-    {open ? <div className="px-4 pb-4">{children}</div> : null}
+    {open ? <div className="px-3 pb-3">{children}</div> : null}
   </div>;
 }
 
@@ -426,7 +467,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     setSheetState("half");
   }, []);
 
-  const onSheetHandlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const onSheetHandlePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (!sheetRef.current) return;
     const startY = event.clientY;
     const initialState = sheetState;
@@ -537,7 +578,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       : Math.max(1, Math.round((g.resizeH || Math.max(1, Math.round((g.cropH / 100) * originalSource.height))) * previewScaleY));
     const outW = forExport ? targetW : Math.min(targetW, src.width);
     const outH = forExport ? targetH : Math.min(targetH, src.height);
-    const renderScale = !forExport && lightweight ? 0.45 : 1;
+    const renderScale = !forExport && lightweight ? 0.72 : 1;
     const workW = Math.max(1, Math.round(outW * renderScale));
     const workH = Math.max(1, Math.round(outH * renderScale));
 
@@ -576,16 +617,27 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       r += sh - hi; g1 += sh - hi; b += sh - hi;
       if (lum > 0.8) { const w = (state.basicTone.whites / 100) * 60; r += w; g1 += w; b += w; }
       if (lum < 0.2) { const bl = (state.basicTone.blacks / 100) * 60; r += bl; g1 += bl; b += bl; }
-      r += state.color.temperature * 0.5; b -= state.color.temperature * 0.5; g1 += state.color.tint * 0.4;
+      r += state.color.temperature * 0.66; b -= state.color.temperature * 0.66; g1 += state.color.tint * 0.56;
 
       let { h, s, l } = rgbToHsl(clamp(r), clamp(g1), clamp(b));
       s = clamp(s * 255 + state.color.saturation, 0, 255) / 255;
-      const vibranceBoost = (state.color.vibrance / 100) * (1 - s) * 0.45;
+      const vibranceBoost = (state.color.vibrance / 165) * (1 - s) * 0.78;
       s = clamp((s + vibranceBoost) * 255, 0, 255) / 255;
-      const range = state.color.hsl[mapHueRange(h)];
-      h = (h + range.hue / 360 + 1) % 1;
-      s = clamp((s + range.sat / 100) * 255, 0, 255) / 255;
-      l = clamp((l + range.lum / 100) * 255, 0, 255) / 255;
+      const bandWeights = getHueBandWeights(h);
+      let hueShift = 0;
+      let satShift = 0;
+      let lumShift = 0;
+      for (const range of HSL_RANGES) {
+        const influence = bandWeights[range];
+        if (influence <= 0) continue;
+        const band = state.color.hsl[range];
+        hueShift += (band.hue / 360) * influence;
+        satShift += (band.sat / 120) * influence;
+        lumShift += (band.lum / 120) * influence;
+      }
+      h = (h + hueShift + 1) % 1;
+      s = clamp((s + satShift) * 255, 0, 255) / 255;
+      l = clamp((l + lumShift) * 255, 0, 255) / 255;
       const graded = (() => {
         const shadowW = Math.max(0, 1 - l * 2), highW = Math.max(0, (l - 0.5) * 2), midW = 1 - shadowW - highW;
         const applyWheel = (wheel: { hue: number; sat: number; lum: number }, w: number, rgb: RGB) => {
@@ -625,6 +677,36 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         b = converted.b;
       }
       d[i] = clamp(r); d[i + 1] = clamp(g1); d[i + 2] = clamp(b);
+    }
+
+    const chromaSmoothStrength = Math.min(1, (Math.abs(state.color.vibrance) + Math.abs(state.color.saturation)) / 280);
+    if (chromaSmoothStrength > 0.06 && workW > 2 && workH > 2) {
+      const chromaSource = new Uint8ClampedArray(d);
+      const chromaMix = 0.12 + chromaSmoothStrength * 0.2;
+      const luma = (rr: number, gg: number, bb: number) => 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+      for (let y = 1; y < workH - 1; y++) {
+        for (let x = 1; x < workW - 1; x++) {
+          const i = (y * workW + x) * 4;
+          const cR = chromaSource[i], cG = chromaSource[i + 1], cB = chromaSource[i + 2];
+          const baseLum = luma(cR, cG, cB);
+          let nr = 0, ng = 0, nb = 0, w = 0;
+          for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              const ni = ((y + oy) * workW + (x + ox)) * 4;
+              const r2 = chromaSource[ni], g2 = chromaSource[ni + 1], b2 = chromaSource[ni + 2];
+              const lumDiff = Math.abs(baseLum - luma(r2, g2, b2)) / 255;
+              const ww = 1 - Math.min(1, lumDiff * 2.2);
+              nr += r2 * ww; ng += g2 * ww; nb += b2 * ww; w += ww;
+            }
+          }
+          if (w > 0.0001) {
+            const sr = nr / w, sg = ng / w, sb = nb / w;
+            d[i] = clamp(lerp(cR, sr, chromaMix));
+            d[i + 1] = clamp(lerp(cG, sg, chromaMix));
+            d[i + 2] = clamp(lerp(cB, sb, chromaMix));
+          }
+        }
+      }
     }
 
     const blurred = new Uint8ClampedArray(d);
@@ -900,13 +982,14 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         </div>
       </div>
 
-      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className="absolute inset-x-4 bottom-20 z-30 max-h-[48vh] overflow-y-auto rounded-2xl border border-slate-500/70 bg-slate-900/82 p-3 shadow-xl backdrop-blur-md">
+      {showSettingsMobile ? <div ref={sheetRef} {...sliderHandlers} className={`absolute inset-x-6 bottom-20 z-30 overflow-y-auto rounded-2xl border border-slate-500/70 bg-slate-900/82 p-2 shadow-xl backdrop-blur-md sm:inset-x-4 sm:bottom-20 sm:p-3 ${sheetState === "collapsed" ? "max-h-[14vh]" : sheetState === "full" ? "max-h-[42vh]" : "max-h-[26vh] sm:max-h-[40vh]"}`}>
+        <div className="mb-2 flex items-center justify-center"><button type="button" aria-label="Resize settings panel" onPointerDown={onSheetHandlePointerDown} className="h-1.5 w-14 rounded-full bg-slate-400/60 hover:bg-slate-300/80" /></div>
         <div className="space-y-4">
         {(mobileTool === "basicTone") ? <div ref={setSectionRef("basicTone")}><Collapsible icon={<SectionIcon kind="basicTone" />} title="Basic Tone" right={<Button variant="ghost" onClick={() => resetSection("basicTone")}>Reset</Button>}>
-          {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={String(v)}><Slider min={k === "exposure" ? -5 : -100} max={k === "exposure" ? 5 : 100} step={k === "exposure" ? 0.1 : 1} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
+          {Object.entries(state.basicTone).map(([k, v]) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={formatControlValue(v, k === "exposure" ? 2 : 1)}><Slider min={k === "exposure" ? -8 : -150} max={k === "exposure" ? 8 : 150} step={k === "exposure" ? 0.05 : 0.5} value={v} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, [k]: Number(e.target.value) } }))} /></Field>)}
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Exposure (precise)"><Input type="number" step={0.01} min={-5} max={5} value={state.basicTone.exposure} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, exposure: Number(e.target.value) } }))} /></Field>
-            <Field label="Contrast (precise)"><Input type="number" step={0.1} min={-100} max={100} value={state.basicTone.contrast} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, contrast: Number(e.target.value) } }))} /></Field>
+            <Field label="Exposure (precise)"><Input type="number" step={0.01} min={-8} max={8} value={state.basicTone.exposure} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, exposure: Number(e.target.value) } }))} /></Field>
+            <Field label="Contrast (precise)"><Input type="number" step={0.1} min={-150} max={150} value={state.basicTone.contrast} onChange={(e) => patch((p) => ({ ...p, basicTone: { ...p.basicTone, contrast: Number(e.target.value) } }))} /></Field>
           </div>
         </Collapsible></div> : null}
 
@@ -941,13 +1024,27 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           }} onMouseUp={() => { dragPointRef.current = null; }} />
         </Collapsible></div> : null}
 
-        {(mobileTool === "color") ? <div ref={setSectionRef("color")}><Collapsible icon={<SectionIcon kind="color" />} title="Color" right={<Button variant="ghost" onClick={() => resetSection("color")}>Reset</Button>}>
-          {(["temperature", "tint", "vibrance", "saturation"] as const).map((k) => <Field key={k} label={k} hint={String(state.color[k])}><Slider min={-100} max={100} value={state.color[k]} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, [k]: Number(e.target.value) } }))} /></Field>)}
-          {HSL_RANGES.map((range) => <div className="grid grid-cols-3 gap-2" key={range}>
-            <Field label={`${range} H`} hint={String(state.color.hsl[range].hue)}><Slider min={-100} max={100} value={state.color.hsl[range].hue} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], hue: Number(e.target.value) } } } }))} /></Field>
-            <Field label="S" hint={String(state.color.hsl[range].sat)}><Slider min={-100} max={100} value={state.color.hsl[range].sat} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], sat: Number(e.target.value) } } } }))} /></Field>
-            <Field label="L" hint={String(state.color.hsl[range].lum)}><Slider min={-100} max={100} value={state.color.hsl[range].lum} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], lum: Number(e.target.value) } } } }))} /></Field>
-          </div>)}
+        {(mobileTool === "color") ? <div ref={setSectionRef("color")}><Collapsible icon={<SectionIcon kind="color" />} title="Color Precision Pro" right={<Button variant="ghost" onClick={() => resetSection("color")}>Reset</Button>}>
+          <div className="mb-3 rounded-xl border border-slate-600/70 bg-slate-950/35 p-2.5 text-[11px] leading-relaxed text-slate-300">
+            Smooth mode blends neighboring hue bands to avoid harsh edges and pixel-like color jumps.
+          </div>
+          {(["temperature", "tint", "vibrance", "saturation"] as const).map((k) => <Field key={k} label={k[0].toUpperCase() + k.slice(1)} hint={formatControlValue(state.color[k])}>
+            <Slider min={-200} max={200} step={0.05} value={state.color[k]} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, [k]: Number(e.target.value) } }))} />
+          </Field>)}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Temp precise"><Input type="number" step={0.01} min={-200} max={200} value={state.color.temperature} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, temperature: Number(e.target.value) } }))} /></Field>
+            <Field label="Tint precise"><Input type="number" step={0.01} min={-200} max={200} value={state.color.tint} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, tint: Number(e.target.value) } }))} /></Field>
+          </div>
+          <div className="mt-3 space-y-2">
+            {HSL_RANGES.map((range) => <div className="rounded-xl border border-slate-700/80 bg-slate-950/30 p-2" key={range}>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-200">{range}</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <Field label="Hue" hint={formatControlValue(state.color.hsl[range].hue, 2)}><Slider min={-180} max={180} step={0.05} value={state.color.hsl[range].hue} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], hue: Number(e.target.value) } } } }))} /></Field>
+                <Field label="Saturation" hint={formatControlValue(state.color.hsl[range].sat, 2)}><Slider min={-150} max={150} step={0.05} value={state.color.hsl[range].sat} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], sat: Number(e.target.value) } } } }))} /></Field>
+                <Field label="Luminance" hint={formatControlValue(state.color.hsl[range].lum, 2)}><Slider min={-150} max={150} step={0.05} value={state.color.hsl[range].lum} onChange={(e) => patch((p) => ({ ...p, color: { ...p.color, hsl: { ...p.color.hsl, [range]: { ...p.color.hsl[range], lum: Number(e.target.value) } } } }))} /></Field>
+              </div>
+            </div>)}
+          </div>
         </Collapsible></div> : null}
 
         {(mobileTool === "grading") ? <div ref={setSectionRef("grading")}><Collapsible icon={<SectionIcon kind="grading" />} title="Color Grading" right={<Button variant="ghost" onClick={() => resetSection("grading")}>Reset</Button>}>
