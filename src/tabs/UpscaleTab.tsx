@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Button, Field, Input, Select, Slider } from "../components/ui";
 import { Toast, type ToastState } from "../components/Toast";
 import type { CommonRasterSettings } from "../lib/settings";
-import { AdjustRenderClient, type RenderMode } from "../lib/adjustRenderClient";
+import { AdjustRenderClient, type RenderErrorInfo, type RenderMode } from "../lib/adjustRenderClient";
 
 const ACCEPT = ["image/png", "image/jpeg", "image/webp", "image/bmp", "image/gif", "image/avif", "image/tiff"];
 const HSL_RANGES = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"] as const;
@@ -501,6 +501,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [lut3d, setLut3d] = useState<LUT3D>(null);
   const [fileSizePreview, setFileSizePreview] = useState("-");
   const [busy, setBusy] = useState(false);
+  const [exportStage, setExportStage] = useState<"preparing" | "processing" | "encoding" | null>(null);
   const [refiningPreview, setRefiningPreview] = useState(false);
   const [zoom, setZoom] = useState<"fit"|"100"|"custom">("fit");
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -531,6 +532,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const settleTimerRef = useRef<number | null>(null);
   const preparedExportUrlRef = useRef<string | null>(null);
   const compatibilityToastShownRef = useRef(false);
+  const consecutiveRenderFailureRef = useRef(0);
+  const exportRunIdRef = useRef(0);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const cropGestureRef = useRef<{ mode: CropGestureMode; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number; quad: QuadShape } | null>(null);
   const cropGestureFrameRef = useRef<number | null>(null);
@@ -1004,6 +1007,22 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     setCanvasRenderNonce((v) => v + 1);
   }, [patch, state.geometry]);
 
+  const markRenderFailure = useCallback((message?: string) => {
+    consecutiveRenderFailureRef.current += 1;
+    if (consecutiveRenderFailureRef.current >= 2) {
+      consecutiveRenderFailureRef.current = 0;
+      setToast({ open: true, message: "Renderer failed. Switching to compatibility mode.", type: "warn" });
+      if (message) console.warn("Render failed repeatedly", message);
+    }
+  }, []);
+
+  const onClientRenderError = useCallback((error: RenderErrorInfo) => {
+    if (error.source === "worker" && !compatibilityToastShownRef.current) {
+      compatibilityToastShownRef.current = true;
+      setToast({ open: true, message: "Rendering failed on this browser. Using compatibility mode.", type: "warn" });
+    }
+  }, []);
+
   const renderToCanvas = useCallback((target: HTMLCanvasElement, bitmap: ImageBitmap, width: number, height: number) => {
     target.width = width;
     target.height = height;
@@ -1024,9 +1043,10 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     const src = mode === "export" ? originalSource : (previewSource ?? originalSource);
     if (!src || !originalSource) return null;
     const client = renderClientRef.current ?? new AdjustRenderClient();
+    client.onRenderError = onClientRenderError;
     renderClientRef.current = client;
     try {
-      return await client.render({
+      const result = await client.render({
         mode,
         sourceCanvas: src,
         originalWidth: originalSource.width,
@@ -1037,6 +1057,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         settings: state,
         lut3d
       });
+      consecutiveRenderFailureRef.current = 0;
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       if (message === "superseded" || message === "stale-render" || message === "invalidated") return null;
@@ -1044,10 +1066,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         compatibilityToastShownRef.current = true;
         setToast({ open: true, message: "Rendering failed on this browser. Using compatibility mode.", type: "warn" });
       }
+      markRenderFailure(message);
       console.error("Render worker failed", error);
       return null;
     }
-  }, [lut3d, mobileTool, state]);
+  }, [lut3d, markRenderFailure, mobileTool, onClientRenderError, state]);
 
   const requestPreviewRender = useCallback((mode: Exclude<RenderMode, "export">) => {
     if (!adjustmentActive || !isDocumentVisible || !previewCanvasRef.current || !sourceCanvasRef.current) return;
@@ -1382,7 +1405,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
               </>;
             })() : null}
           </div>}
-          {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">Preparing export…</div> : null}
+          {busy ? <div className="absolute inset-0 bg-slate-900/55 flex items-center justify-center text-slate-100 text-sm">{exportStage === "processing" ? "Processing export…" : exportStage === "encoding" ? "Encoding export…" : "Preparing export…"}</div> : null}
           {(showBefore || holdBefore) ? <div className="absolute bottom-3 right-3 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">Original view</div> : null}
           {!file ? <div className="absolute bottom-3 left-3 rounded bg-white/80 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200 px-2 py-1 text-xs">Tap preview to upload</div> : <div className="absolute bottom-3 left-3 rounded bg-white/80 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200 px-2 py-1 text-xs">Use × to remove and upload a new image</div>}
         </div>
@@ -1534,28 +1557,49 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           {state.export.resizeOnExport ? <div className="grid grid-cols-2 gap-2"><Field label="Width"><Input type="number" min={1} value={state.export.width} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, width: Number(e.target.value) } }))} /></Field><Field label="Height"><Input type="number" min={1} value={state.export.height} onChange={(e) => patch((p) => ({ ...p, export: { ...p.export, height: Number(e.target.value) } }))} /></Field></div> : null}
           <p className="text-xs text-slate-500">Estimated file size: {fileSizePreview}</p>
           <p className="text-xs text-slate-500">Bit depth multiplier: ×{BIT_DEPTH_FACTORS[state.export.bitDepth]} (higher depth keeps more tonal precision during export pipeline).</p>
-          <Button className="w-full" disabled={!file || busy} onClick={async () => {
-            if (!previewCanvasRef.current || !file) return;
-            const out = document.createElement("canvas");
-            setBusy(true);
-            try {
-              await applyPipeline(out, true);
-              const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
-              const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
-              if (!blob) throw new Error("export-blob-failed");
-              if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
-              const nextUrl = URL.createObjectURL(blob);
-              preparedExportUrlRef.current = nextUrl;
-              const ext = state.export.format === "jpg" ? "jpg" : state.export.format;
-              setPreparedExport({ url: nextUrl, name: `edited.${ext}`, size: `${(blob.size / 1024).toFixed(1)} KB` });
-              setSettings((p) => ({ ...p, quality: state.export.quality, out: state.export.format === "jpg" ? "jpeg" : state.export.format as any }));
-            } catch (error) {
-              console.error("Prepare export failed", error);
-              setToast({ open: true, message: "Prepare export failed. Please retry in compatibility mode.", type: "error" });
-            } finally {
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button className="w-full" disabled={!file || busy} onClick={async () => {
+              if (!previewCanvasRef.current || !file) return;
+              const out = document.createElement("canvas");
+              const runId = ++exportRunIdRef.current;
+              setBusy(true);
+              setExportStage("preparing");
+              try {
+                setExportStage("processing");
+                await applyPipeline(out, true);
+                if (runId !== exportRunIdRef.current) throw new Error("export-cancelled");
+                setExportStage("encoding");
+                const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
+                const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
+                if (runId !== exportRunIdRef.current) throw new Error("export-cancelled");
+                if (!blob) throw new Error("export-blob-failed");
+                if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
+                const nextUrl = URL.createObjectURL(blob);
+                preparedExportUrlRef.current = nextUrl;
+                const ext = state.export.format === "jpg" ? "jpg" : state.export.format;
+                setPreparedExport({ url: nextUrl, name: `edited.${ext}`, size: `${(blob.size / 1024).toFixed(1)} KB` });
+                setSettings((p) => ({ ...p, quality: state.export.quality, out: state.export.format === "jpg" ? "jpeg" : state.export.format as any }));
+              } catch (error) {
+                const message = error instanceof Error ? error.message : "";
+                if (message !== "export-cancelled") {
+                  console.error("Prepare export failed", error);
+                  setToast({ open: true, message: "Prepare export failed. Please retry in compatibility mode.", type: "error" });
+                }
+              } finally {
+                if (runId === exportRunIdRef.current) {
+                  setBusy(false);
+                  setExportStage(null);
+                }
+              }
+            }}>Prepare export</Button>
+            <Button className="w-full" variant="ghost" disabled={!busy} onClick={() => {
+              exportRunIdRef.current += 1;
+              renderClientRef.current?.invalidate();
               setBusy(false);
-            }
-          }}>Prepare export</Button>
+              setExportStage(null);
+              setToast({ open: true, message: "Export cancelled.", type: "warn" });
+            }}>Cancel export</Button>
+          </div>
           {preparedExport ? <div className="mt-2 rounded-xl bg-slate-100 p-2 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">Ready to download: <b>{preparedExport.name}</b> · {preparedExport.size}<Button className="mt-2 w-full" onClick={() => {
             const a = document.createElement("a");
             a.href = preparedExport.url;
