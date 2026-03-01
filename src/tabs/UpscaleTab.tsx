@@ -85,8 +85,8 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
 ];
 
 const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
-const PREVIEW_MAX_DIMENSION = 2560;
-const INTERACTIVE_PREVIEW_MAX_DIMENSION = 1280;
+const PREVIEW_MAX_DIMENSION = 1920;
+const INTERACTIVE_PREVIEW_MAX_DIMENSION = 960;
 const INTERACTIVE_PREVIEW_DELAY_MS = 16;
 const FINAL_PREVIEW_DELAY_MS = 26;
 
@@ -165,16 +165,15 @@ function useHistory<T>(initial: T) {
   const [past, setPast] = useState<T[]>([]);
   const [present, setPresent] = useState<T>(initial);
   const [future, setFuture] = useState<T[]>([]);
-  const equals = useCallback((a: T, b: T) => JSON.stringify(a) === JSON.stringify(b), []);
 
   const commit = useCallback((next: T) => {
     setPresent((current) => {
-      if (equals(current, next)) return current;
+      if (Object.is(current, next)) return current;
       setPast((p) => [...p.slice(-30), current]);
       setFuture([]);
       return next;
     });
-  }, [equals]);
+  }, []);
   const undo = useCallback(() => {
     setPast((p) => {
       if (!p.length) return p;
@@ -302,6 +301,40 @@ function clampPercent(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
+function clampCropToBounds(cropX: number, cropY: number, cropW: number, cropH: number) {
+  const boundedW = clampPercent(cropW, 5, 100);
+  const boundedH = clampPercent(cropH, 5, 100);
+  return {
+    cropW: boundedW,
+    cropH: boundedH,
+    cropX: clampPercent(cropX, 0, 100 - boundedW),
+    cropY: clampPercent(cropY, 0, 100 - boundedH)
+  };
+}
+
+function clampCropWithRatio(cropX: number, cropY: number, cropW: number, cropH: number, ratio: number | null) {
+  if (!ratio) return clampCropToBounds(cropX, cropY, cropW, cropH);
+
+  let boundedX = clampPercent(cropX, 0, 95);
+  let boundedY = clampPercent(cropY, 0, 95);
+  const maxW = Math.max(5, Math.min(100 - boundedX, (100 - boundedY) * ratio));
+  const maxH = Math.max(5, Math.min(100 - boundedY, (100 - boundedX) / ratio));
+
+  let nextW = clampPercent(cropW, 5, maxW);
+  let nextH = clampPercent(cropH, 5, maxH);
+
+  if (nextW / nextH > ratio) nextW = clampPercent(nextH * ratio, 5, maxW);
+  else nextH = clampPercent(nextW / ratio, 5, maxH);
+
+  const bounds = clampCropToBounds(boundedX, boundedY, nextW, nextH);
+  return {
+    cropX: bounds.cropX,
+    cropY: bounds.cropY,
+    cropW: bounds.cropW,
+    cropH: clampPercent(bounds.cropW / ratio, 5, 100 - bounds.cropY)
+  };
+}
+
 function parseRatioPreset(preset: GeometryRatioPreset): number | null {
   if (preset === "free" || preset === "original") return null;
   const [w, h] = preset.split(":").map(Number);
@@ -421,6 +454,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const preparedExportUrlRef = useRef<string | null>(null);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const cropGestureRef = useRef<{ mode: "move" | "nw" | "ne" | "sw" | "se"; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
+  const cropGestureFrameRef = useRef<number | null>(null);
+  const pendingCropRef = useRef<{ cropX: number; cropY: number; cropW: number; cropH: number } | null>(null);
   const [preparedExport, setPreparedExport] = useState<{ url: string; name: string; size: string } | null>(null);
   const sectionRefs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     basicTone: null,
@@ -490,28 +525,22 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       const ratio = preset === "original"
         ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
         : parseRatioPreset(preset);
-      if (!ratio) return { ...prev, geometry: nextGeometry };
+      if (!ratio) {
+        return {
+          ...prev,
+          geometry: {
+            ...nextGeometry,
+            ...clampCropToBounds(nextGeometry.cropX, nextGeometry.cropY, nextGeometry.cropW, nextGeometry.cropH)
+          }
+        };
+      }
 
-      const currentW = Math.max(1, nextGeometry.cropW);
-      const currentH = Math.max(1, nextGeometry.cropH);
-      const currentRatio = currentW / currentH;
-      let cropW = currentW;
-      let cropH = currentH;
-
-      if (currentRatio > ratio) cropW = cropH * ratio;
-      else cropH = cropW / ratio;
-
-      cropW = clampPercent(cropW, 5, 100);
-      cropH = clampPercent(cropH, 5, 100);
-
+      const fitted = clampCropWithRatio(nextGeometry.cropX, nextGeometry.cropY, nextGeometry.cropW, nextGeometry.cropH, ratio);
       return {
         ...prev,
         geometry: {
           ...nextGeometry,
-          cropW,
-          cropH,
-          cropX: clampPercent(nextGeometry.cropX, 0, 100 - cropW),
-          cropY: clampPercent(nextGeometry.cropY, 0, 100 - cropH)
+          ...fitted
         }
       };
     });
@@ -528,24 +557,16 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       let cropW = g.cropW;
       let cropH = g.cropH;
 
-      if (key === "cropX") cropX = clampPercent(rawValue, 0, 100 - cropW);
-      if (key === "cropY") cropY = clampPercent(rawValue, 0, 100 - cropH);
+      if (key === "cropX") cropX = rawValue;
+      if (key === "cropY") cropY = rawValue;
+      if (key === "cropW") cropW = rawValue;
+      if (key === "cropH") cropH = rawValue;
 
-      if (key === "cropW") {
-        cropW = clampPercent(rawValue, 5, 100);
-        if (ratio) cropH = clampPercent(cropW / ratio, 5, 100);
-        cropX = clampPercent(cropX, 0, 100 - cropW);
-        cropY = clampPercent(cropY, 0, 100 - cropH);
-      }
+      const nextCrop = ratio
+        ? clampCropWithRatio(cropX, cropY, cropW, cropH, ratio)
+        : clampCropToBounds(cropX, cropY, cropW, cropH);
 
-      if (key === "cropH") {
-        cropH = clampPercent(rawValue, 5, 100);
-        if (ratio) cropW = clampPercent(cropH * ratio, 5, 100);
-        cropX = clampPercent(cropX, 0, 100 - cropW);
-        cropY = clampPercent(cropY, 0, 100 - cropH);
-      }
-
-      return { ...prev, geometry: { ...g, cropX, cropY, cropW, cropH } };
+      return { ...prev, geometry: { ...g, ...nextCrop } };
     });
   }, [patch]);
 
@@ -593,8 +614,8 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
       const minSize = 5;
 
       if (gesture.mode === "move") {
-        cropX = clampPercent(gesture.cropX + dxPct, 0, 100 - cropW);
-        cropY = clampPercent(gesture.cropY + dyPct, 0, 100 - cropH);
+        cropX = gesture.cropX + dxPct;
+        cropY = gesture.cropY + dyPct;
       } else {
         if (gesture.mode === "nw" || gesture.mode === "sw") {
           cropX = clampPercent(gesture.cropX + dxPct, 0, gesture.cropX + gesture.cropW - minSize);
@@ -610,29 +631,32 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         if (gesture.mode === "sw" || gesture.mode === "se") {
           cropH = clampPercent(gesture.cropH + dyPct, minSize, 100 - gesture.cropY);
         }
-
-        if (state.geometry.ratioPreset !== "free") {
-          const ratio = state.geometry.ratioPreset === "original"
-            ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
-            : parseRatioPreset(state.geometry.ratioPreset);
-          if (ratio) {
-            if (gesture.mode === "nw" || gesture.mode === "ne") {
-              cropW = clampPercent(cropH * ratio, minSize, 100 - cropX);
-            } else {
-              cropH = clampPercent(cropW / ratio, minSize, 100 - cropY);
-            }
-          }
-        }
-
-        cropX = clampPercent(cropX, 0, 100 - cropW);
-        cropY = clampPercent(cropY, 0, 100 - cropH);
       }
 
-      patch((prev) => ({ ...prev, geometry: { ...prev.geometry, cropX, cropY, cropW, cropH } }));
+      const ratio = state.geometry.ratioPreset === "original"
+        ? (sourceCanvasRef.current ? sourceCanvasRef.current.width / Math.max(1, sourceCanvasRef.current.height) : null)
+        : parseRatioPreset(state.geometry.ratioPreset);
+      const nextCrop = ratio
+        ? clampCropWithRatio(cropX, cropY, cropW, cropH, ratio)
+        : clampCropToBounds(cropX, cropY, cropW, cropH);
+
+      pendingCropRef.current = nextCrop;
+      if (cropGestureFrameRef.current !== null) return;
+      cropGestureFrameRef.current = window.requestAnimationFrame(() => {
+        cropGestureFrameRef.current = null;
+        const pending = pendingCropRef.current;
+        if (!pending) return;
+        patch((prev) => ({ ...prev, geometry: { ...prev.geometry, ...pending } }));
+      });
     };
 
     const onUp = () => {
       cropGestureRef.current = null;
+      pendingCropRef.current = null;
+      if (cropGestureFrameRef.current !== null) {
+        window.cancelAnimationFrame(cropGestureFrameRef.current);
+        cropGestureFrameRef.current = null;
+      }
       onSliderInteractionEnd();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -1075,6 +1099,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     renderTokenRef.current += 1;
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
     if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
+    if (cropGestureFrameRef.current !== null) window.cancelAnimationFrame(cropGestureFrameRef.current);
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     if (preparedExportUrlRef.current) URL.revokeObjectURL(preparedExportUrlRef.current);
   }, []);
