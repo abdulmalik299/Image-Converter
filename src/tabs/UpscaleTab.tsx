@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { Button, Field, Input, Select, Slider } from "../components/ui";
 import { Toast, type ToastState } from "../components/Toast";
 import type { CommonRasterSettings } from "../lib/settings";
+import { AdjustRenderClient, type RenderMode } from "../lib/adjustRenderClient";
 
 const ACCEPT = ["image/png", "image/jpeg", "image/webp", "image/bmp", "image/gif", "image/avif", "image/tiff"];
 const HSL_RANGES = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"] as const;
@@ -94,10 +95,9 @@ const SECTION_ITEMS: Array<{ key: SectionKey; label: string }> = [
 ];
 
 const BIT_DEPTH_FACTORS = { "8-bit": 1, "16-bit": 2, "32-bit": 4, "64-bit": 8 } as const;
-const PREVIEW_MAX_DIMENSION = 1920;
-const INTERACTIVE_PREVIEW_MAX_DIMENSION = 960;
-const INTERACTIVE_PREVIEW_DELAY_MS = 10;
-const FINAL_PREVIEW_DELAY_MS = 18;
+const PREVIEW_MAX_DIMENSION = 1600;
+const INTERACTIVE_PREVIEW_MAX_DIMENSION = 1024;
+const FINAL_PREVIEW_SCALE = 0.95;
 const PREVIEW_TARGET_BYTES = 260 * 1024;
 
 const GEOMETRY_RATIO_PRESETS = [
@@ -501,6 +501,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [lut3d, setLut3d] = useState<LUT3D>(null);
   const [fileSizePreview, setFileSizePreview] = useState("-");
   const [busy, setBusy] = useState(false);
+  const [refiningPreview, setRefiningPreview] = useState(false);
   const [zoom, setZoom] = useState<"fit"|"100"|"custom">("fit");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showBefore, setShowBefore] = useState(false);
@@ -511,7 +512,6 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const [isMobile, setIsMobile] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => typeof document === "undefined" ? true : document.visibilityState === "visible");
   const [isInteracting, setIsInteracting] = useState(false);
-  const [previewQualityMode, setPreviewQualityMode] = useState<"interactive" | "final">("final");
   const [sheetState, setSheetState] = useState<"collapsed"|"half"|"full">("half");
   const [canvasRenderNonce, setCanvasRenderNonce] = useState(0);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -519,13 +519,16 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragPointRef = useRef<number | null>(null);
-  const renderTokenRef = useRef(0);
+  const renderClientRef = useRef<AdjustRenderClient | null>(null);
+  const latestDisplayBitmapRef = useRef<ImageBitmap | null>(null);
+  const rafHandleRef = useRef<number | null>(null);
+  const refineTimerRef = useRef<number | null>(null);
+  const renderQueuedRef = useRef(false);
   const previewUrlRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const sliderInteractionDepthRef = useRef(0);
   const settleTimerRef = useRef<number | null>(null);
-  const previewTimerRef = useRef<number | null>(null);
   const preparedExportUrlRef = useRef<string | null>(null);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const cropGestureRef = useRef<{ mode: CropGestureMode; startX: number; startY: number; cropX: number; cropY: number; cropW: number; cropH: number; quad: QuadShape } | null>(null);
@@ -565,15 +568,16 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     if (event && !isAdjustmentInteractionTarget(event.target)) return;
     sliderInteractionDepthRef.current += 1;
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+    if (refineTimerRef.current) window.clearTimeout(refineTimerRef.current);
+    setRefiningPreview(false);
     setIsInteracting(true);
-    setPreviewQualityMode("interactive");
   }, [isAdjustmentInteractionTarget]);
 
   const onSliderInteractionEnd = useCallback(() => {
     sliderInteractionDepthRef.current = Math.max(0, sliderInteractionDepthRef.current - 1);
     if (sliderInteractionDepthRef.current === 0) {
       setIsInteracting(false);
-      settleTimerRef.current = window.setTimeout(() => setPreviewQualityMode("final"), 140);
+      settleTimerRef.current = window.setTimeout(() => setRefiningPreview(true), 100);
     }
   }, []);
 
@@ -999,249 +1003,93 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
     setCanvasRenderNonce((v) => v + 1);
   }, [patch, state.geometry]);
 
-  const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false, lightweight = false, showBusy = false) => {
+  const renderToCanvas = useCallback((target: HTMLCanvasElement, bitmap: ImageBitmap, width: number, height: number) => {
+    target.width = width;
+    target.height = height;
+    const targetCtx = target.getContext("2d");
+    if (!targetCtx) {
+      bitmap.close();
+      return;
+    }
+    targetCtx.clearRect(0, 0, width, height);
+    targetCtx.drawImage(bitmap, 0, 0);
+    if (latestDisplayBitmapRef.current) latestDisplayBitmapRef.current.close();
+    latestDisplayBitmapRef.current = bitmap;
+  }, []);
+
+  const runRender = useCallback(async (mode: RenderMode, target: HTMLCanvasElement) => {
     const originalSource = sourceCanvasRef.current;
     const previewSource = previewSourceCanvasRef.current;
-    const src = forExport ? originalSource : (previewSource ?? originalSource);
-    if (!src || !originalSource) return;
-    const token = ++renderTokenRef.current;
-    if (showBusy) setBusy(true);
-    await new Promise((r) => setTimeout(r, 0));
-    if (token !== renderTokenRef.current) return;
-    const g = state.geometry;
-    const showLiveCropOverlayOnly = !forExport && mobileTool === "geometry";
-    const cropX = showLiveCropOverlayOnly ? 0 : Math.round((g.cropX / 100) * src.width);
-    const cropY = showLiveCropOverlayOnly ? 0 : Math.round((g.cropY / 100) * src.height);
-    const cropW = showLiveCropOverlayOnly ? src.width : Math.max(1, Math.round((g.cropW / 100) * src.width));
-    const cropH = showLiveCropOverlayOnly ? src.height : Math.max(1, Math.round((g.cropH / 100) * src.height));
-    const previewScaleX = src.width / originalSource.width;
-    const previewScaleY = src.height / originalSource.height;
-    const targetW = forExport && state.export.resizeOnExport
-      ? state.export.width
-      : Math.max(1, Math.round((g.resizeW || Math.max(1, Math.round((g.cropW / 100) * originalSource.width))) * previewScaleX));
-    const targetH = forExport && state.export.resizeOnExport
-      ? state.export.height
-      : Math.max(1, Math.round((g.resizeH || Math.max(1, Math.round((g.cropH / 100) * originalSource.height))) * previewScaleY));
-    const outW = forExport ? targetW : Math.min(targetW, src.width);
-    const outH = forExport ? targetH : Math.min(targetH, src.height);
-    const interactiveMaxScale = !forExport && lightweight ? Math.min(1, INTERACTIVE_PREVIEW_MAX_DIMENSION / Math.max(outW, outH)) : 1;
-    const renderScale = !forExport && lightweight ? Math.min(0.82, interactiveMaxScale) : 1;
-    const workW = Math.max(1, Math.round(outW * renderScale));
-    const workH = Math.max(1, Math.round(outH * renderScale));
-
-    const temp = document.createElement("canvas");
-    temp.width = workW; temp.height = workH;
-    const tctx = temp.getContext("2d");
-    if (!tctx) return;
-    tctx.imageSmoothingEnabled = true;
-    tctx.imageSmoothingQuality = g.smoothingQuality;
-    tctx.translate(workW / 2, workH / 2);
-    tctx.rotate((g.rotate * Math.PI) / 180);
-    tctx.transform(1, g.perspectiveV / 100, g.perspectiveH / 100, 1, 0, 0);
-    tctx.scale(g.flipH ? -1 : 1, g.flipV ? -1 : 1);
-    tctx.drawImage(src, cropX, cropY, cropW, cropH, -workW / 2, -workH / 2, workW, workH);
-
-    const ctx = temp.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-    const image = ctx.getImageData(0, 0, workW, workH);
-    const d = image.data;
-    const lutRGB = buildLut(state.toneCurve.rgb);
-    const lutR = buildLut(state.toneCurve.r), lutG = buildLut(state.toneCurve.g), lutB = buildLut(state.toneCurve.b);
-
-    const exposureMul = Math.pow(2, state.basicTone.exposure);
-    const contrastMul = 1 + state.basicTone.contrast / 100;
-    for (let i = 0; i < d.length; i += 4) {
-      let r = d[i], g1 = d[i + 1], b = d[i + 2];
-      r = r * exposureMul + state.basicTone.brightness;
-      g1 = g1 * exposureMul + state.basicTone.brightness;
-      b = b * exposureMul + state.basicTone.brightness;
-      r = 128 + (r - 128) * contrastMul;
-      g1 = 128 + (g1 - 128) * contrastMul;
-      b = 128 + (b - 128) * contrastMul;
-      const lum = (0.2126 * r + 0.7152 * g1 + 0.0722 * b) / 255;
-      const sh = Math.max(0, 1 - lum * 2) * (state.basicTone.shadows / 100) * 80;
-      const hi = Math.max(0, (lum - 0.5) * 2) * (state.basicTone.highlights / 100) * 80;
-      r += sh - hi; g1 += sh - hi; b += sh - hi;
-      if (lum > 0.8) { const w = (state.basicTone.whites / 100) * 60; r += w; g1 += w; b += w; }
-      if (lum < 0.2) { const bl = (state.basicTone.blacks / 100) * 60; r += bl; g1 += bl; b += bl; }
-      r += state.color.temperature * 0.66; b -= state.color.temperature * 0.66; g1 += state.color.tint * 0.56;
-
-      let { h, s, l } = rgbToHsl(clamp(r), clamp(g1), clamp(b));
-      s = clamp(s * 255 + state.color.saturation, 0, 255) / 255;
-      const vibranceBoost = (state.color.vibrance / 165) * (1 - s) * 0.78;
-      s = clamp((s + vibranceBoost) * 255, 0, 255) / 255;
-      const bandWeights = getHueBandWeights(h);
-      let hueShift = 0;
-      let satShift = 0;
-      let lumShift = 0;
-      for (const range of HSL_RANGES) {
-        const influence = bandWeights[range];
-        if (influence <= 0) continue;
-        const band = state.color.hsl[range];
-        hueShift += (band.hue / 360) * influence;
-        satShift += (band.sat / 120) * influence;
-        lumShift += (band.lum / 120) * influence;
-      }
-      h = (h + hueShift + 1) % 1;
-      s = clamp((s + satShift) * 255, 0, 255) / 255;
-      l = clamp((l + lumShift) * 255, 0, 255) / 255;
-      const graded = (() => {
-        const shadowW = Math.max(0, 1 - l * 2), highW = Math.max(0, (l - 0.5) * 2), midW = 1 - shadowW - highW;
-        const applyWheel = (wheel: { hue: number; sat: number; lum: number }, w: number, rgb: RGB) => {
-          const tint = hslToRgb(wheel.hue / 360, clamp(wheel.sat, 0, 100) / 100, 0.5);
-          rgb.r = lerp(rgb.r, tint.r, (wheel.sat / 100) * w * 0.35) + wheel.lum * w * 0.2;
-          rgb.g = lerp(rgb.g, tint.g, (wheel.sat / 100) * w * 0.35) + wheel.lum * w * 0.2;
-          rgb.b = lerp(rgb.b, tint.b, (wheel.sat / 100) * w * 0.35) + wheel.lum * w * 0.2;
-        };
-        const base = hslToRgb(h, s, l);
-        applyWheel(state.grading.shadows, shadowW, base);
-        applyWheel(state.grading.midtones, midW, base);
-        applyWheel(state.grading.highlights, highW, base);
-        return base;
-      })();
-      r = graded.r; g1 = graded.g; b = graded.b;
-
-      if (state.advanced.labMode) {
-        const avg = (r + g1 + b) / 3;
-        r = lerp(avg, r, 1.15); g1 = lerp(avg, g1, 1.1); b = lerp(avg, b, 1.1);
-      }
-      const m = state.advanced.channelMixer;
-      const nr = (r * m.r.r + g1 * m.r.g + b * m.r.b) / 100;
-      const ng = (r * m.g.r + g1 * m.g.g + b * m.g.b) / 100;
-      const nb = (r * m.b.r + g1 * m.b.g + b * m.b.b) / 100;
-      r = Math.pow(clamp(nr) / 255, 1 / state.advanced.gamma) * 255;
-      g1 = Math.pow(clamp(ng) / 255, 1 / state.advanced.gamma) * 255;
-      b = Math.pow(clamp(nb) / 255, 1 / state.advanced.gamma) * 255;
-
-      r = lutRGB[clamp(r)] + (lutR[clamp(r)] - clamp(r));
-      g1 = lutRGB[clamp(g1)] + (lutG[clamp(g1)] - clamp(g1));
-      b = lutRGB[clamp(b)] + (lutB[clamp(b)] - clamp(b));
-
-      if (forExport) {
-        const converted = applyColorSpaceTransform(r, g1, b, state.export.colorSpace);
-        r = converted.r;
-        g1 = converted.g;
-        b = converted.b;
-      }
-      d[i] = clamp(r); d[i + 1] = clamp(g1); d[i + 2] = clamp(b);
+    const src = mode === "export" ? originalSource : (previewSource ?? originalSource);
+    if (!src || !originalSource) return null;
+    const client = renderClientRef.current ?? new AdjustRenderClient();
+    renderClientRef.current = client;
+    try {
+      return await client.render({
+        mode,
+        sourceCanvas: src,
+        originalWidth: originalSource.width,
+        originalHeight: originalSource.height,
+        showLiveCropOverlayOnly: mode !== "export" && mobileTool === "geometry",
+        interactiveMaxDimension: INTERACTIVE_PREVIEW_MAX_DIMENSION,
+        finalScale: FINAL_PREVIEW_SCALE,
+        settings: state,
+        lut3d
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message === "superseded" || message === "stale-render" || message === "invalidated") return null;
+      console.error("Render worker failed", error);
+      return null;
     }
-
-    const chromaSmoothStrength = Math.min(1, (Math.abs(state.color.vibrance) + Math.abs(state.color.saturation)) / 280);
-    if (!lightweight && chromaSmoothStrength > 0.06 && workW > 2 && workH > 2) {
-      const chromaSource = new Uint8ClampedArray(d);
-      const chromaMix = 0.12 + chromaSmoothStrength * 0.2;
-      const luma = (rr: number, gg: number, bb: number) => 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
-      for (let y = 1; y < workH - 1; y++) {
-        for (let x = 1; x < workW - 1; x++) {
-          const i = (y * workW + x) * 4;
-          const cR = chromaSource[i], cG = chromaSource[i + 1], cB = chromaSource[i + 2];
-          const baseLum = luma(cR, cG, cB);
-          let nr = 0, ng = 0, nb = 0, w = 0;
-          for (let oy = -1; oy <= 1; oy++) {
-            for (let ox = -1; ox <= 1; ox++) {
-              const ni = ((y + oy) * workW + (x + ox)) * 4;
-              const r2 = chromaSource[ni], g2 = chromaSource[ni + 1], b2 = chromaSource[ni + 2];
-              const lumDiff = Math.abs(baseLum - luma(r2, g2, b2)) / 255;
-              const ww = 1 - Math.min(1, lumDiff * 2.2);
-              nr += r2 * ww; ng += g2 * ww; nb += b2 * ww; w += ww;
-            }
-          }
-          if (w > 0.0001) {
-            const sr = nr / w, sg = ng / w, sb = nb / w;
-            d[i] = clamp(lerp(cR, sr, chromaMix));
-            d[i + 1] = clamp(lerp(cG, sg, chromaMix));
-            d[i + 2] = clamp(lerp(cB, sb, chromaMix));
-          }
-        }
-      }
-    }
-
-    const blurred = new Uint8ClampedArray(d);
-    if (!lightweight && (state.detail.sharpenAmount > 0 || state.detail.noiseLuma > 0 || state.detail.noiseColor > 0 || state.detail.clarity !== 0 || state.detail.texture !== 0 || state.detail.dehaze !== 0 || state.advanced.highPass > 0 || state.advanced.edgePreview)) {
-      const rad = Math.max(1, Math.round(state.detail.sharpenRadius));
-      for (let y = 0; y < workH; y++) {
-        for (let x = 0; x < workW; x++) {
-          const i = (y * workW + x) * 4;
-          const n = sampleNeighborhood(d, workW, workH, x, y, Math.max(1, rad));
-          blurred[i] = n.r; blurred[i + 1] = n.g; blurred[i + 2] = n.b;
-        }
-      }
-      for (let i = 0; i < d.length; i += 4) {
-        let r = d[i], g1 = d[i + 1], b = d[i + 2];
-        const br = blurred[i], bg = blurred[i + 1], bb = blurred[i + 2];
-        const hr = r - br, hg = g1 - bg, hb = b - bb;
-        const edge = Math.abs(hr) + Math.abs(hg) + Math.abs(hb);
-        if (state.detail.sharpenAmount > 0 && edge > state.detail.sharpenThreshold) {
-          r += hr * (state.detail.sharpenAmount / 100);
-          g1 += hg * (state.detail.sharpenAmount / 100);
-          b += hb * (state.detail.sharpenAmount / 100);
-        }
-        const clarityFactor = state.detail.clarity / 100;
-        r += hr * clarityFactor * 0.8; g1 += hg * clarityFactor * 0.8; b += hb * clarityFactor * 0.8;
-        const textureFactor = state.detail.texture / 100;
-        r += hr * textureFactor * 0.4; g1 += hg * textureFactor * 0.4; b += hb * textureFactor * 0.4;
-        const dehazeFactor = state.detail.dehaze / 100;
-        r = 128 + (r - 128) * (1 + dehazeFactor * 0.5); g1 = 128 + (g1 - 128) * (1 + dehazeFactor * 0.5); b = 128 + (b - 128) * (1 + dehazeFactor * 0.5);
-
-        if (state.detail.noiseLuma > 0) {
-          const mix = state.detail.noiseLuma / 100;
-          const gray = (br + bg + bb) / 3;
-          r = lerp(r, gray, mix * 0.4); g1 = lerp(g1, gray, mix * 0.4); b = lerp(b, gray, mix * 0.4);
-        }
-        if (state.detail.noiseColor > 0) {
-          const mix = state.detail.noiseColor / 100;
-          r = lerp(r, br, mix * 0.55); g1 = lerp(g1, bg, mix * 0.55); b = lerp(b, bb, mix * 0.55);
-        }
-        if (state.advanced.highPass > 0) {
-          const hp = state.advanced.highPass / 100;
-          r = 128 + hr * hp * 2; g1 = 128 + hg * hp * 2; b = 128 + hb * hp * 2;
-        }
-        if (state.advanced.edgePreview) {
-          const e = clamp(edge * 1.2);
-          r = g1 = b = e;
-        }
-        if (forExport) {
-        const converted = applyColorSpaceTransform(r, g1, b, state.export.colorSpace);
-        r = converted.r;
-        g1 = converted.g;
-        b = converted.b;
-      }
-      d[i] = clamp(r); d[i + 1] = clamp(g1); d[i + 2] = clamp(b);
-      }
-    }
-
-    if (lut3d && !lightweight) {
-      for (let i = 0; i < d.length; i += 4) {
-        const r = d[i] / 255, g1 = d[i + 1] / 255, b = d[i + 2] / 255;
-        const idx = ((Math.round(r * (lut3d.size - 1)) * lut3d.size + Math.round(g1 * (lut3d.size - 1))) * lut3d.size + Math.round(b * (lut3d.size - 1))) * 3;
-        d[i] = clamp(lut3d.table[idx] * 255); d[i + 1] = clamp(lut3d.table[idx + 1] * 255); d[i + 2] = clamp(lut3d.table[idx + 2] * 255);
-      }
-    }
-
-    if (g.vignette > 0 || g.lensDistortion !== 0) {
-      const cx = workW / 2, cy = workH / 2;
-      const maxDist = Math.sqrt(cx * cx + cy * cy);
-      for (let y = 0; y < workH; y++) for (let x = 0; x < workW; x++) {
-        const i = (y * workW + x) * 4;
-        const dx = x - cx, dy = y - cy;
-        const dist = Math.sqrt(dx * dx + dy * dy) / maxDist;
-        const vig = 1 - (g.vignette / 100) * Math.pow(dist, 1.8);
-        const distort = 1 + (g.lensDistortion / 100) * dist * 0.2;
-        d[i] = clamp(d[i] * vig * distort); d[i + 1] = clamp(d[i + 1] * vig * distort); d[i + 2] = clamp(d[i + 2] * vig * distort);
-      }
-    }
-
-    if (token !== renderTokenRef.current) return;
-    ctx.putImageData(image, 0, 0);
-    target.width = outW; target.height = outH;
-    const targetCtx = target.getContext("2d");
-    if (targetCtx) {
-      targetCtx.imageSmoothingEnabled = true;
-      targetCtx.imageSmoothingQuality = lightweight ? "medium" : g.smoothingQuality;
-      targetCtx.drawImage(temp, 0, 0, outW, outH);
-    }
-    setBusy(false);
   }, [lut3d, mobileTool, state]);
+
+  const requestPreviewRender = useCallback((mode: Exclude<RenderMode, "export">) => {
+    if (!adjustmentActive || !previewCanvasRef.current || !sourceCanvasRef.current) return;
+    if (showBefore || holdBefore) {
+      const src = (previewSourceCanvasRef.current ?? sourceCanvasRef.current) as HTMLCanvasElement;
+      const preview = previewCanvasRef.current as HTMLCanvasElement;
+      preview.width = src.width;
+      preview.height = src.height;
+      preview.getContext("2d")?.drawImage(src, 0, 0);
+      return;
+    }
+    const run = async () => {
+      const target = previewCanvasRef.current;
+      if (!target) return;
+      if (mode === "final") setRefiningPreview(true);
+      const rendered = await runRender(mode, target);
+      if (!rendered || !previewCanvasRef.current) {
+        if (mode === "final") setRefiningPreview(false);
+        return;
+      }
+      renderToCanvas(previewCanvasRef.current, rendered.bitmap, rendered.width, rendered.height);
+      if (mode === "final") {
+        const blob = await new Promise<Blob | null>((r) => previewCanvasRef.current?.toBlob((b) => r(b), "image/jpeg", state.export.quality / 100));
+        setFileSizePreview(blob ? `${(blob.size / 1024).toFixed(1)} KB` : "-");
+        setRefiningPreview(false);
+      }
+    };
+    if (mode === "interactive") {
+      renderQueuedRef.current = true;
+      if (rafHandleRef.current !== null) return;
+      rafHandleRef.current = window.requestAnimationFrame(() => {
+        rafHandleRef.current = null;
+        if (!renderQueuedRef.current) return;
+        renderQueuedRef.current = false;
+        void run();
+      });
+      return;
+    }
+    void run();
+  }, [adjustmentActive, holdBefore, renderToCanvas, runRender, showBefore, state.export.quality]);
+
+  const applyPipeline = useCallback(async (target: HTMLCanvasElement, forExport = false) => {
+    const mode: RenderMode = forExport ? "export" : "final";
+    const rendered = await runRender(mode, target);
+    if (!rendered) return;
+    renderToCanvas(target, rendered.bitmap, rendered.width, rendered.height);
+  }, [renderToCanvas, runRender]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -1271,32 +1119,23 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
 
   useEffect(() => {
     if (adjustmentActive) return;
-    renderTokenRef.current += 1;
-    setBusy(false);
+    renderClientRef.current?.stop();
+    renderClientRef.current = null;
+    if (rafHandleRef.current !== null) {
+      window.cancelAnimationFrame(rafHandleRef.current);
+      rafHandleRef.current = null;
+    }
+    if (refineTimerRef.current) {
+      window.clearTimeout(refineTimerRef.current);
+      refineTimerRef.current = null;
+    }
+    setRefiningPreview(false);
   }, [adjustmentActive]);
 
   useEffect(() => {
     if (!adjustmentActive || !previewCanvasRef.current || !sourceCanvasRef.current) return;
-    if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
-    previewTimerRef.current = window.setTimeout(() => {
-      if (showBefore || holdBefore) {
-        const src = (previewSourceCanvasRef.current ?? sourceCanvasRef.current) as HTMLCanvasElement;
-        const preview = previewCanvasRef.current as HTMLCanvasElement;
-        preview.width = src.width;
-        preview.height = src.height;
-        preview.getContext("2d")?.drawImage(src, 0, 0);
-        return;
-      }
-      applyPipeline(previewCanvasRef.current as HTMLCanvasElement, false, isInteracting || previewQualityMode === "interactive", false).then(async () => {
-        if (isInteracting || previewQualityMode === "interactive") return;
-        const blob = await new Promise<Blob | null>((r) => previewCanvasRef.current?.toBlob((b) => r(b), "image/jpeg", state.export.quality / 100));
-        setFileSizePreview(blob ? `${(blob.size / 1024).toFixed(1)} KB` : "-");
-      });
-    }, isInteracting ? INTERACTIVE_PREVIEW_DELAY_MS : FINAL_PREVIEW_DELAY_MS);
-    return () => {
-      if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
-    };
-  }, [state, applyPipeline, adjustmentActive, showBefore, holdBefore, isInteracting, previewQualityMode]);
+    requestPreviewRender(isInteracting ? "interactive" : "final");
+  }, [state, adjustmentActive, showBefore, holdBefore, isInteracting, requestPreviewRender]);
 
   useEffect(() => {
     if (!adjustmentActive) return;
@@ -1329,9 +1168,11 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
   }, [state.toneCurve, curveChannel, adjustmentActive]);
 
   useEffect(() => () => {
-    renderTokenRef.current += 1;
+    renderClientRef.current?.stop();
+    if (latestDisplayBitmapRef.current) latestDisplayBitmapRef.current.close();
     if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
-    if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
+    if (refineTimerRef.current) window.clearTimeout(refineTimerRef.current);
+    if (rafHandleRef.current !== null) window.cancelAnimationFrame(rafHandleRef.current);
     if (cropGestureFrameRef.current !== null) window.cancelAnimationFrame(cropGestureFrameRef.current);
     if (bodyScrollRestoreRef.current) {
       document.body.style.overflow = bodyScrollRestoreRef.current.overflow;
@@ -1435,6 +1276,7 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
         >
           {!file ? <span className="text-slate-500 dark:text-slate-400 text-sm">Load an image to begin editing.</span> : <div ref={previewWrapRef} className="relative inline-block">
             <canvas key={canvasRenderNonce} ref={previewCanvasRef} style={{ transform: `scale(${zoom === "fit" ? 1 : zoomLevel})` }} className="h-auto max-h-full w-auto max-w-full rounded-lg transition-transform" />
+            {refiningPreview && !isInteracting ? <div className="pointer-events-none absolute right-2 top-2 rounded bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-100">Refining…</div> : null}
             {mobileTool === "geometry" && !showBefore && !holdBefore ? (() => {
               const g = state.geometry;
               const rectMidX = g.cropX + g.cropW / 2;
@@ -1683,7 +1525,12 @@ export function UpscaleTab({ setSettings, active }: { settings: CommonRasterSett
           <Button className="w-full" disabled={!file || busy} onClick={async () => {
             if (!previewCanvasRef.current || !file) return;
             const out = document.createElement("canvas");
-            await applyPipeline(out, true, false, true);
+            setBusy(true);
+            try {
+              await applyPipeline(out, true);
+            } finally {
+              setBusy(false);
+            }
             const mime = state.export.format === "jpg" ? "image/jpeg" : `image/${state.export.format}`;
             const blob = await new Promise<Blob | null>((r) => out.toBlob((b) => r(b), mime, state.export.quality / 100));
             if (!blob) return;
